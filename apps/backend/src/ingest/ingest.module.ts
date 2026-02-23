@@ -1,0 +1,28 @@
+import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
+import { IngestController } from './ingest.controller';
+import { IngestService } from './ingest.service';
+import { CloneService } from './clone.service';
+import { ChunkingService } from './chunking.service';
+import { EmbeddingService } from './embedding.service';
+import { VectorStoreService } from './vector-store.service';
+import { IngestProcessor } from './ingest.processor';
+
+export const INGEST_QUEUE = 'ingest';
+
+@Module({
+  imports: [
+    BullModule.registerQueue({ name: INGEST_QUEUE }),
+  ],
+  controllers: [IngestController],
+  providers: [
+    IngestService,
+    CloneService,
+    ChunkingService,
+    EmbeddingService,
+    VectorStoreService,
+    IngestProcessor,
+  ],
+  exports: [VectorStoreService, EmbeddingService],
+})
+export class IngestModule {}

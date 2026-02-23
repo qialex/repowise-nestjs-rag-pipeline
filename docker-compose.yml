@@ -1,0 +1,71 @@
+version: '3.9'
+
+services:
+  # ── NestJS Backend ──────────────────────────────────────────
+  backend:
+    build:
+      context: ./apps/backend
+      target: prod
+    container_name: repowise-backend
+    restart: always
+    env_file: ./apps/backend/.env
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+    ports:
+      - '3001:3001'
+    depends_on:
+      - redis
+    networks:
+      - repowise
+
+  # ── Next.js Frontend ────────────────────────────────────────
+  frontend:
+    build:
+      context: ./apps/frontend
+      target: prod
+    container_name: repowise-frontend
+    restart: always
+    env_file: ./apps/frontend/.env
+    environment:
+      NODE_ENV: production
+    ports:
+      - '3000:3000'
+    networks:
+      - repowise
+
+  # ── Redis (BullMQ queue) ────────────────────────────────────
+  # Note: In production you can swap this for Upstash Redis
+  # by setting REDIS_HOST/PASSWORD in .env and removing this service
+  redis:
+    image: redis:7-alpine
+    container_name: repowise-redis
+    restart: always
+    volumes:
+      - redis_data:/data
+    ports:
+      - '6379:6379'
+    networks:
+      - repowise
+
+  # ── Nginx reverse proxy ─────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: repowise-nginx
+    restart: always
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - '80:80'
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - repowise
+
+networks:
+  repowise:
+    driver: bridge
+
+volumes:
+  redis_data:
