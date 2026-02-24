@@ -1,8 +1,8 @@
 {
-  "name": "Repowise Backend",
+  "name": "Repowise Monorepo",
   "dockerComposeFile": "../docker-compose.dev.yml",
   "service": "backend",
-  "workspaceFolder": "/app",
+  "workspaceFolder": "/workspace",
   "features": {},
   "customizations": {
     "vscode": {

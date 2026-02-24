@@ -5,33 +5,22 @@ services:
       dockerfile: apps/backend/Dockerfile
       target: dev
     container_name: repowise-backend-dev
-    command: sh -c "pnpm install && pnpm run start:debug"
+    working_dir: /workspace
+    command: sh -c "pnpm install && pnpm run dev"
     volumes:
-      - ./apps/backend:/app          # hot reload
-      - /app/node_modules            # preserve container node_modules
+      - .:/workspace                 # full monorepo
+      - /workspace/node_modules      # preserve root node_modules
+      - /workspace/apps/backend/node_modules
+      - /workspace/apps/frontend/node_modules
     env_file: ./apps/backend/.env
     environment:
       NODE_ENV: development
     ports:
       - '3001:3001'
+      - '3000:3000'
       - '9229:9229'                  # Node debugger
     depends_on:
       - redis
-    networks:
-      - repowise-dev
-
-  frontend:
-    image: node:20-alpine
-    container_name: repowise-frontend-dev
-    working_dir: /app
-    volumes:
-      - ./apps/frontend:/app
-      - /app/node_modules
-    command: sh -c "corepack enable && corepack prepare pnpm@9.0.0 --activate && pnpm install && pnpm run dev"
-    environment:
-      NODE_ENV: development
-    ports:
-      - '3000:3000'
     networks:
       - repowise-dev
 
