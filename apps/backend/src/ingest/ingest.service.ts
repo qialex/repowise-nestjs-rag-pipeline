@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { IngestRepoDto } from './dto/ingest-repo.dto';
-import { INGEST_QUEUE } from './ingest.module';
+import { INGEST_QUEUE } from './constants';
 
 @Injectable()
 export class IngestService {

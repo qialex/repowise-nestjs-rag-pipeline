@@ -7,12 +7,12 @@ import { ChunkingService } from './chunking.service';
 import { EmbeddingService } from './embedding.service';
 import { VectorStoreService } from './vector-store.service';
 import { IngestProcessor } from './ingest.processor';
-
-export const INGEST_QUEUE = 'ingest';
+import { INGEST_QUEUE } from './constants';
 
 @Module({
   imports: [
     BullModule.registerQueue({ name: INGEST_QUEUE }),
+    // BullModule.registerQueue({ name: 'default' }),
   ],
   controllers: [IngestController],
   providers: [

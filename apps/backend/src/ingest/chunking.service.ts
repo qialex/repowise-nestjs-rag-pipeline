@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
+import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import * as glob from 'glob';
 import * as fs from 'fs/promises';
 import * as path from 'path';

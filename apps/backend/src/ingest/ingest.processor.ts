@@ -5,7 +5,7 @@ import { CloneService } from './clone.service';
 import { ChunkingService } from './chunking.service';
 import { EmbeddingService } from './embedding.service';
 import { VectorStoreService } from './vector-store.service';
-import { INGEST_QUEUE } from './ingest.module';
+import { INGEST_QUEUE } from './constants';
 
 @Processor(INGEST_QUEUE)
 export class IngestProcessor extends WorkerHost {
