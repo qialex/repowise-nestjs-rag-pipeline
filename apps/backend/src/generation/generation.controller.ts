@@ -1,7 +1,8 @@
-import { Controller, Post, Body, Res, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Res, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiSecurity } from '@nestjs/swagger';
 import { Response } from 'express';
 import { GenerationService } from './generation.service';
+import { ChatHistoryService } from './chat-history.service';
 import { AskDto } from './dto/ask.dto';
 import { ApiKeyGuard } from '../common/guards/api-key.guard';
 
@@ -10,7 +11,10 @@ import { ApiKeyGuard } from '../common/guards/api-key.guard';
 @UseGuards(ApiKeyGuard)
 @Controller('ask')
 export class GenerationController {
-  constructor(private readonly generationService: GenerationService) {}
+  constructor(
+    private readonly generationService: GenerationService,
+    private readonly chatHistoryService: ChatHistoryService,
+  ) {}
 
   @Post()
   @ApiOperation({
@@ -29,5 +33,11 @@ export class GenerationController {
   })
   async askStream(@Body() dto: AskDto, @Res() res: Response) {
     await this.generationService.askStream(dto.question, dto.repoId, res);
+  }
+
+  @Get('history/:repoId')
+  @ApiOperation({ summary: 'Get chat history for a repository' })
+  async getHistory(@Param('repoId') repoId: string) {
+    return this.chatHistoryService.getHistory(repoId);
   }
 }

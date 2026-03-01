@@ -9,3 +9,4 @@ tmp/
 .idea
 .pnpm-store
 .vscode/
+.claude

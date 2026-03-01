@@ -5,10 +5,12 @@ import {
   Delete,
   Body,
   Param,
+  Res,
   UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { Response } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -45,9 +47,23 @@ export class IngestController {
 
   @Get('status/:jobId')
   @ApiOperation({ summary: 'Check ingestion job status' })
-
   async getStatus(@Param('jobId') jobId: string) {
     return this.ingestService.getJobStatus(jobId);
+  }
+
+  @Get('logs/:jobId')
+  @ApiOperation({ summary: 'Stream ingestion logs via SSE' })
+  async streamLogs(@Param('jobId') jobId: string, @Res() res: Response) {
+    return this.ingestService.streamLogs(jobId, res);
+  }
+
+  @Post('restart/:jobId')
+  @ApiOperation({ summary: 'Restart an ingestion job regardless of its current state' })
+  @ApiResponse({ status: 202, description: 'Ingestion job restarted' })
+  @HttpCode(HttpStatus.ACCEPTED)
+  async restartJob(@Param('jobId') jobId: string) {
+    const job = await this.ingestService.restartJob(jobId);
+    return { message: 'Repository ingestion restarted', jobId: job.id };
   }
 
   @Get('repos')

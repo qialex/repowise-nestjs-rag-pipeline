@@ -1,38 +1,94 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { GitFork, Plus, ChevronRight, Clock, RotateCcw, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import { buttonVariants } from '@/components/ui/button';
 
-interface Message {
-  role: 'user' | 'assistant';
-  content: string;
+const STATUS_LABEL: Record<string, string> = {
+  waiting: 'queued',
+  active: 'ingesting',
+  completed: 'ingested',
+  failed: 'failed',
+  unknown: 'unknown',
+};
+
+interface Repo {
+  repoId: string;
+  repoUrl: string;
+  ingestedAt: string;
+  status: string;
+  jobId: string;
 }
 
 export default function Home() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
+  const router = useRouter();
+  const [repos, setRepos] = useState<Repo[]>([]);
   const [repoUrl, setRepoUrl] = useState('');
-  const [repoId, setRepoId] = useState('');
   const [isIngesting, setIsIngesting] = useState(false);
-  const [isAsking, setIsAsking] = useState(false);
-  const [ingestStatus, setIngestStatus] = useState('');
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [restarting, setRestarting] = useState<string | null>(null);
+  const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
+  const [error, setError] = useState('');
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
   const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
+  const headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY };
 
-  const headers = {
-    'Content-Type': 'application/json',
-    'x-api-key': API_KEY,
+  const fetchRepos = () => {
+    fetch(`${API_URL}/ingest/repos`, { headers })
+      .then((r) => r.json())
+      .then(setRepos)
+      .catch(() => {});
   };
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    fetchRepos();
+    const interval = setInterval(fetchRepos, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const deleteRepo = async (e: React.MouseEvent, repo: Repo) => {
+    e.stopPropagation();
+    try {
+      await fetch(`${API_URL}/ingest/repo/${repo.repoId}`, { method: 'DELETE', headers });
+      setRepos((prev) => prev.filter((r) => r.repoId !== repo.repoId));
+    } catch {
+      fetchRepos();
+    }
+  };
+
+  const restartRepo = async (e: React.MouseEvent, repo: Repo) => {
+    e.stopPropagation();
+    setRestarting(repo.repoId);
+    try {
+      const res = await fetch(`${API_URL}/ingest/restart/${repo.jobId}`, { method: 'POST', headers });
+      const data = await res.json();
+      setRepos((prev) => prev.map((r) => r.repoId === repo.repoId ? { ...r, jobId: data.jobId, status: 'waiting' } : r));
+    } catch {
+      fetchRepos();
+    } finally {
+      setRestarting(null);
+    }
+  };
+
+  const isValidGithubUrl = (url: string) =>
+    /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+/.test(url);
 
   const ingestRepo = async () => {
-    if (!repoUrl) return;
+    if (!isValidGithubUrl(repoUrl)) {
+      setError('Please enter a valid GitHub URL (https://github.com/owner/repo)');
+      return;
+    }
+    setError('');
     setIsIngesting(true);
-    setIngestStatus('Queuing ingestion...');
 
     try {
       const res = await fetch(`${API_URL}/ingest/repo`, {
@@ -40,156 +96,157 @@ export default function Home() {
         headers,
         body: JSON.stringify({ repoUrl }),
       });
-
       const data = await res.json();
-      setRepoId(data.repoId || repoUrl.replace('https://github.com/', '').replace('/', '-'));
-      setIngestStatus(`✓ Queued! Job ID: ${data.jobId}. Processing in background...`);
+      const newRepo: Repo = {
+        repoId: data.repoId || repoUrl.replace('https://github.com/', '').replace('/', '-'),
+        repoUrl,
+        ingestedAt: new Date().toISOString(),
+        status: 'queued',
+        jobId: data.jobId,
+      };
+      setRepos((prev) => [newRepo, ...prev.filter((r) => r.repoId !== newRepo.repoId)]);
+      setRepoUrl('');
+      router.push(`/repo/${newRepo.repoId}?jobId=${data.jobId}`);
     } catch {
-      setIngestStatus('✗ Failed to queue ingestion.');
+      setError('Failed to queue ingestion. Is the backend running?');
     } finally {
       setIsIngesting(false);
     }
   };
 
-  const ask = async () => {
-    if (!input.trim()) return;
-    const question = input.trim();
-    setInput('');
-    setIsAsking(true);
-
-    setMessages((prev) => [...prev, { role: 'user', content: question }]);
-    setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
-
-    try {
-      const res = await fetch(`${API_URL}/ask/stream`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ question, repoId: repoId || undefined }),
-      });
-
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (reader) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') break;
-            try {
-              const { text } = JSON.parse(data);
-              setMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: 'assistant',
-                  content: updated[updated.length - 1].content + text,
-                };
-                return updated;
-              });
-            } catch {}
-          }
-        }
-      }
-    } catch {
-      setMessages((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1] = { role: 'assistant', content: '✗ Error fetching response.' };
-        return updated;
-      });
-    } finally {
-      setIsAsking(false);
-    }
-  };
+  const deletingRepo = repos.find((r) => r.repoId === deletingRepoId) ?? null;
 
   return (
-    <main className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
-      {/* Header */}
-      <header className="border-b border-gray-800 p-4 flex items-center gap-3">
-        <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center font-bold text-sm">R</div>
+    <main className="h-screen bg-background flex flex-col overflow-hidden">
+      {/* Sticky header */}
+      <header className="border-b border-border px-6 py-4 flex items-center gap-3 shrink-0">
+        <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center font-bold text-sm text-primary-foreground">
+          R
+        </div>
         <div>
-          <h1 className="font-semibold text-white">Repowise</h1>
-          <p className="text-xs text-gray-500">RAG pipeline over GitHub repos · NestJS + Upstash</p>
+          <h1 className="font-semibold text-foreground">Repowise</h1>
+          <p className="text-xs text-muted-foreground">RAG pipeline over GitHub repos</p>
         </div>
       </header>
 
-      {/* Ingest bar */}
-      <div className="border-b border-gray-800 p-4 bg-gray-900">
-        <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">1. Ingest a repository</p>
-        <div className="flex gap-2">
-          <input
-            type="url"
-            value={repoUrl}
-            onChange={(e) => setRepoUrl(e.target.value)}
-            placeholder="https://github.com/owner/repo"
-            className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
-            onKeyDown={(e) => e.key === 'Enter' && ingestRepo()}
-          />
-          <button
-            onClick={ingestRepo}
-            disabled={isIngesting || !repoUrl}
-            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-          >
-            {isIngesting ? 'Queuing...' : 'Ingest'}
-          </button>
+      {/* Sticky ingest form */}
+      <div className="shrink-0">
+        <div className="max-w-2xl mx-auto px-6 pt-6 pb-2 space-y-2">
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+            Ingest a repository
+          </h2>
+          <div className="flex gap-2 pt-3">
+            <Input
+              type="url"
+              value={repoUrl}
+              onChange={(e) => { setRepoUrl(e.target.value); setError(''); }}
+              onKeyDown={(e) => e.key === 'Enter' && ingestRepo()}
+              placeholder="https://github.com/owner/repo"
+            />
+            <Button onClick={ingestRepo} disabled={isIngesting || !repoUrl}>
+              <Plus className="w-4 h-4" />
+              {isIngesting ? 'Queuing...' : 'Ingest'}
+            </Button>
+          </div>
+          <p className={`text-xs min-h-[1rem] ${error ? 'text-destructive' : 'invisible'}`}>{error || ' '}</p>
         </div>
-        {ingestStatus && <p className="text-xs text-gray-400 mt-2">{ingestStatus}</p>}
-        {repoId && (
-          <p className="text-xs text-indigo-400 mt-1">Scoped to: <code>{repoId}</code></p>
-        )}
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 && (
-          <div className="text-center text-gray-600 mt-16">
-            <p className="text-lg mb-2">Ask anything about your repo</p>
-            <p className="text-sm">Try: "How is authentication handled?" or "What does the AppModule import?"</p>
-          </div>
-        )}
-        {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div
-              className={`max-w-2xl rounded-xl px-4 py-3 text-sm whitespace-pre-wrap ${
-                msg.role === 'user'
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-gray-800 text-gray-100'
-              }`}
+      {/* Sticky repos heading */}
+      <div className="shrink-0">
+        <div className="max-w-2xl mx-auto px-6 py-4 pt-1">
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+            Ingested repositories
+          </h2>
+        </div>
+      </div>
+
+      {/* Scrollable repo list */}
+      <ScrollArea className="flex-1">
+        <div className="max-w-2xl mx-auto px-6 py-4 space-y-2">
+          {repos.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-8 text-center">
+              No repositories ingested yet.
+            </p>
+          ) : (
+            repos.map((repo) => (
+              <Card
+                key={repo.repoId}
+                className="cursor-pointer hover:border-primary/50 transition-colors"
+                onClick={() => deletingRepoId === null && router.push(`/repo/${repo.repoId}?jobId=${repo.jobId}`)}
+              >
+                <CardContent className="p-4 flex items-center gap-3">
+                  <GitFork className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      {repo.repoUrl.replace('https://github.com/', '')}
+                    </p>
+                    <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                      <Clock className="w-3 h-3" />
+                      {new Date(repo.ingestedAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <Badge variant={
+                    repo.status === 'completed' ? 'success' :
+                    repo.status === 'failed' ? 'destructive' :
+                    repo.status === 'active' ? 'warning' :
+                    'secondary'
+                  }>
+                    {STATUS_LABEL[repo.status] ?? repo.status}
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0"
+                    disabled={restarting === repo.repoId}
+                    onClick={(e) => restartRepo(e, repo)}
+                    title="Restart ingestion"
+                  >
+                    <RotateCcw className={`w-4 h-4 ${restarting === repo.repoId ? 'animate-spin' : ''}`} />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0 text-destructive hover:text-destructive"
+                    onClick={(e) => { e.stopPropagation(); setDeletingRepoId(repo.repoId); }}
+                    title="Remove repository"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
+      </ScrollArea>
+
+      {/* Single delete dialog rendered outside the list */}
+      <Dialog open={deletingRepoId !== null} onOpenChange={(open) => !open && setDeletingRepoId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove repository?</DialogTitle>
+            <DialogDescription>
+              This will remove{' '}
+              <span className="font-medium text-foreground">
+                {deletingRepo?.repoUrl.replace('https://github.com/', '')}
+              </span>{' '}
+              from the list. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <button className={buttonVariants({ variant: 'outline' })} onClick={() => setDeletingRepoId(null)}>
+              Cancel
+            </button>
+            <button
+              className={buttonVariants({ variant: 'destructive' })}
+              onClick={(e) => deletingRepo && deleteRepo(e, deletingRepo)}
             >
-              {msg.content || <span className="animate-pulse text-gray-500">▊</span>}
-            </div>
-          </div>
-        ))}
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Input */}
-      <div className="border-t border-gray-800 p-4">
-        <div className="flex gap-2 max-w-4xl mx-auto">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && ask()}
-            placeholder="Ask about the codebase..."
-            disabled={isAsking}
-            className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50"
-          />
-          <button
-            onClick={ask}
-            disabled={isAsking || !input.trim()}
-            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-5 py-3 rounded-xl text-sm font-medium transition-colors"
-          >
-            {isAsking ? '...' : 'Ask'}
-          </button>
-        </div>
-      </div>
+              Remove
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
