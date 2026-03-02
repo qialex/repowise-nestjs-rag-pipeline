@@ -1,9 +1,9 @@
 [build]
-builder = "dockerfile"
-dockerfilePath = "Dockerfile.backend"
+builder = "nixpacks"
+buildCommand = "pnpm --filter @repowise/shared build && pnpm --filter @repowise/backend build"
 
 [deploy]
-startCommand = "node dist/main"
+startCommand = "node apps/backend/dist/main"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "on_failure"
