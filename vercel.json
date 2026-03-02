@@ -1,6 +1,6 @@
 {
   "installCommand": "pnpm install",
   "buildCommand": "pnpm --filter @repowise/shared build && pnpm --filter @repowise/frontend build",
-  "outputDirectory": "apps/frontend/.next",
+  "outputDirectory": ".next",
   "framework": "nextjs"
 }
