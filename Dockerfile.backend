@@ -22,7 +22,7 @@ COPY apps/backend ./apps/backend
 RUN pnpm --filter @repowise/shared build
 RUN pnpm --filter @repowise/backend build
 # pnpm deploy creates a flat, symlink-free node_modules safe for Docker COPY
-RUN pnpm --filter @repowise/backend deploy --prod /deploy
+RUN pnpm --filter @repowise/backend deploy --prod --legacy /deploy
 
 # ---- Production ----
 FROM node:20-alpine AS prod
