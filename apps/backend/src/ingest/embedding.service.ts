@@ -89,11 +89,7 @@ export class EmbeddingService {
     }
   }
 
-  async embedChunks(
-    chunks: CodeChunk[],
-    logFn?: (msg: string) => Promise<void>,
-    cancelFn?: () => boolean,
-  ): Promise<number[][]> {
+  async embedChunks(chunks: CodeChunk[], logFn?: (msg: string) => Promise<void>): Promise<number[][]> {
     const model = this.getModel();
     const texts = chunks.map((c) => c.content);
     const allEmbeddings: number[][] = [];
@@ -129,9 +125,7 @@ export class EmbeddingService {
 
       // Pause between batches to avoid saturating the free-tier rate limit
       if (i + BATCH_SIZE < texts.length) {
-        if (cancelFn?.()) throw new Error('Ingestion cancelled');
         await new Promise((r) => setTimeout(r, INTER_BATCH_DELAY_MS));
-        if (cancelFn?.()) throw new Error('Ingestion cancelled');
       }
     }
 

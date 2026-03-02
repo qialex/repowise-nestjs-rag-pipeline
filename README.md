@@ -1,184 +1,249 @@
-# Repowise — NestJS RAG Pipeline
+# Repowise — GitHub Repo Chat (RAG Pipeline)
 
-> Ask questions about any GitHub repository using natural language.  
-> Built with **NestJS**, **LangChain.js**, **BullMQ**, **Upstash Vector**, and **Next.js**.
-
-![CI](https://github.com/yourusername/repowise-nestjs-rag-pipeline/actions/workflows/ci.yml/badge.svg)
+> Ask natural-language questions about any GitHub repository and get answers grounded in its actual source code.
+> Built with **NestJS**, **Next.js**, **BullMQ**, **Groq**, **Google Gemini**, and **Upstash**.
 
 ---
 
-## Architecture
+## How it works
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   Next.js Frontend                  │
-│              (Streaming chat UI)                    │
-└──────────────────────┬──────────────────────────────┘
-                       │ HTTP / SSE
-┌──────────────────────▼──────────────────────────────┐
-│                  NestJS Backend                     │
-│                                                     │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────┐ │
-│  │ IngestModule│  │RetrievalMod. │  │  GenModule │ │
-│  │             │  │              │  │            │ │
-│  │ • CloneSvc  │  │ • Embed query│  │ • LLM call │ │
-│  │ • ChunkSvc  │  │ • Vector     │  │ • Streaming│ │
-│  │ • EmbedSvc  │  │   search     │  │   SSE      │ │
-│  │ • VectorSvc │  └──────────────┘  └────────────┘ │
-│  │ • BullMQ    │                                    │
-│  │   Processor │                                    │
-│  └──────┬──────┘                                    │
-└─────────┼───────────────────────────────────────────┘
-          │
-  ┌───────▼────────┐    ┌─────────────────┐
-  │  Upstash Redis │    │  Upstash Vector │
-  │  (BullMQ queue)│    │  (embeddings)   │
-  └────────────────┘    └─────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                    Next.js Frontend                      │
+│         Repository list · Ingestion logs · Chat UI       │
+└───────────────────────────┬──────────────────────────────┘
+                            │ HTTP + SSE
+┌───────────────────────────▼──────────────────────────────┐
+│                     NestJS Backend                       │
+│                                                          │
+│  ┌──────────────┐  ┌─────────────────┐  ┌─────────────┐ │
+│  │ IngestModule │  │ RetrievalModule │  │  GenModule  │ │
+│  │              │  │                 │  │             │ │
+│  │ BullMQ queue │  │  Embed query    │  │  Groq LLM   │ │
+│  │ + fork() per │  │  Vector search  │  │  SSE stream │ │
+│  │   job        │  └─────────────────┘  └─────────────┘ │
+│  └──────┬───────┘                                        │
+└─────────┼────────────────────────────────────────────────┘
+          │ child_process.fork()
+┌─────────▼────────────────────────┐
+│         ingest-worker (Node.js)  │
+│  clone → chunk → embed → upsert  │
+│  Killed instantly via SIGTERM    │
+└──────────────────────────────────┘
+
+      Upstash Redis          Upstash Vector
+    (BullMQ job queue)    (1536-dim embeddings)
 ```
 
-### RAG Pipeline Flow
+### Ingestion pipeline
 
-1. **POST /ingest/repo** — queues a BullMQ job with the GitHub URL  
-2. **IngestProcessor** (BullMQ worker) — clones the repo → chunks files → embeds with OpenAI → stores in Upstash Vector  
-3. **POST /ask/stream** — embeds the question → retrieves top-K chunks → streams LLM answer via SSE  
+1. User submits a GitHub URL → `POST /ingest/repo`
+2. BullMQ queues a job in Upstash Redis
+3. `IngestProcessor` picks up the job and **forks a child process** (`ingest-worker`)
+4. The worker: clones the repo → chunks files → embeds with Google Gemini → stores in Upstash Vector
+5. Progress and logs stream back to the UI via SSE
+
+### Chat pipeline
+
+1. User asks a question → `POST /ask/stream`
+2. Backend embeds the query (Gemini), retrieves top-K chunks from Upstash Vector
+3. Streams the LLM answer (Groq / Llama 3.1) token-by-token via SSE
 
 ---
 
-## Tech Stack
+## Tech stack
 
 | Layer | Technology |
 |---|---|
-| Backend framework | NestJS 10 |
-| Queue | BullMQ + Upstash Redis |
-| Embeddings | OpenAI `text-embedding-3-small` |
+| Backend framework | NestJS 11 |
+| Job queue | BullMQ 5 + Upstash Redis |
+| Embeddings | Google Gemini (`gemini-embedding-001`, 1536 dims) |
 | Vector store | Upstash Vector |
-| LLM | OpenAI GPT-4o-mini (swappable) |
+| LLM / chat | Groq (`llama-3.1-8b-instant`) |
 | RAG framework | LangChain.js |
 | Frontend | Next.js 14 (App Router) |
-| Deployment | Oracle Cloud Free Tier + Docker Compose |
+| Styling | Tailwind CSS + Radix UI |
 | Dev environment | VS Code Dev Containers |
-| CI | GitHub Actions |
+| Deployment | Docker Compose + Nginx |
 
 ---
 
-## Getting Started
+## Prerequisites
 
-### Prerequisites
+Free-tier accounts required:
 
-- Docker & Docker Compose
-- VS Code with Dev Containers extension (recommended)
-- Accounts: [Upstash](https://upstash.com) (free), [OpenAI](https://platform.openai.com)
+| Service | Used for | Sign-up |
+|---|---|---|
+| [Upstash](https://upstash.com) | Redis (job queue) + Vector DB | Free |
+| [Groq](https://console.groq.com) | LLM chat (very fast, free tier) | Free |
+| [Google AI Studio](https://aistudio.google.com) | Gemini embeddings (1500 req/day free) | Free |
 
-### Local Development (Dev Container)
+---
+
+## Quick start
+
+### 1. Clone and configure
 
 ```bash
-# 1. Clone the repo
-git clone https://github.com/yourusername/repowise-nestjs-rag-pipeline
-cd repowise-nestjs-rag-pipeline
+git clone https://github.com/yourusername/repowise
+cd repowise
 
-# 2. Copy env files
 cp apps/backend/.env.example apps/backend/.env
 cp apps/frontend/.env.example apps/frontend/.env
-# Fill in your API keys
-
-# 3. Open in VS Code → "Reopen in Container"
-# Dev container starts NestJS + Next.js + Redis automatically
 ```
 
-### Manual Docker Dev
+Edit `apps/backend/.env`:
+
+```env
+# Groq — free LLM (https://console.groq.com)
+GROQ_API_KEY=gsk_...
+LLM_MODEL=llama-3.1-8b-instant
+
+# Google Gemini — free embeddings (https://aistudio.google.com)
+GOOGLE_API_KEY=AIza...
+
+# Upstash Redis — job queue (https://console.upstash.com)
+REDIS_HOST=your-host.upstash.io
+REDIS_PORT=6379
+REDIS_PASSWORD=your-password
+REDIS_TLS=true
+
+# Upstash Vector — vector store (https://console.upstash.com)
+UPSTASH_VECTOR_URL=https://your-index.upstash.io
+UPSTASH_VECTOR_TOKEN=your-token
+
+# Shared API key between frontend and backend
+API_KEY=any-secret-string
+
+PORT=3001
+FRONTEND_URL=http://localhost:3000
+```
+
+Edit `apps/frontend/.env`:
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:3001
+NEXT_PUBLIC_API_KEY=any-secret-string   # same as API_KEY above
+```
+
+### 2. Run (Dev Container — recommended)
+
+Open the repo in VS Code and select **"Reopen in Container"**.
+NestJS, Next.js, and a local Redis instance start automatically with hot reload.
+
+### 2. Run (Docker Compose)
 
 ```bash
 docker-compose -f docker-compose.dev.yml up
 ```
 
-- NestJS API: http://localhost:3001  
-- Swagger docs: http://localhost:3001/docs  
-- Next.js UI: http://localhost:3000  
+### 2. Run (bare Node.js)
+
+```bash
+pnpm install
+pnpm dev          # starts backend (3001) + frontend (3000) in parallel
+```
+
+| URL | Description |
+|---|---|
+| http://localhost:3000 | Chat UI |
+| http://localhost:3001/docs | Swagger / OpenAPI |
 
 ---
 
-## API Reference
+## API
 
-Full interactive docs available at `/docs` (Swagger UI).
+All endpoints require `x-api-key: <API_KEY>` header.
+Full interactive docs at `http://localhost:3001/docs`.
 
-### Ingest a repository
+### Ingest
+
 ```bash
+# Queue a repository
 curl -X POST http://localhost:3001/ingest/repo \
-  -H "Content-Type: application/json" \
   -H "x-api-key: your-key" \
-  -d '{ "repoUrl": "https://github.com/nestjs/nest" }'
+  -H "Content-Type: application/json" \
+  -d '{"repoUrl": "https://github.com/nestjs/nest"}'
+
+# Stream ingestion logs (SSE)
+curl http://localhost:3001/ingest/logs/{jobId} -H "x-api-key: your-key"
+
+# List ingested repos
+curl http://localhost:3001/ingest/repos -H "x-api-key: your-key"
+
+# Delete a repo (stops active ingestion immediately)
+curl -X DELETE http://localhost:3001/ingest/repo/{repoId} -H "x-api-key: your-key"
 ```
 
-### Check job status
+### Chat
+
 ```bash
-curl http://localhost:3001/ingest/status/{jobId} \
-  -H "x-api-key: your-key"
+# Streaming answer (SSE)
+curl -X POST http://localhost:3001/ask/stream \
+  -H "x-api-key: your-key" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "How does the DI container work?", "repoId": "nestjs-nest"}'
+
+# Clear chat history
+curl -X DELETE http://localhost:3001/ask/history/{repoId} -H "x-api-key: your-key"
 ```
 
-### Ask a question
-```bash
-curl -X POST http://localhost:3001/ask \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: your-key" \
-  -d '{ "question": "How is the DI container set up?", "repoId": "nestjs-nest" }'
+---
+
+## Project structure
+
+```
+repowise/
+├── apps/
+│   ├── backend/src/
+│   │   ├── ingest/
+│   │   │   ├── ingest.controller.ts      # REST endpoints
+│   │   │   ├── ingest.service.ts         # Job management, kill on delete
+│   │   │   ├── ingest.processor.ts       # BullMQ worker — forks child per job
+│   │   │   ├── ingest-worker.ts          # Child process: clone→chunk→embed→store
+│   │   │   ├── clone.service.ts
+│   │   │   ├── chunking.service.ts
+│   │   │   ├── embedding.service.ts      # Gemini, batched, rate-limit retry
+│   │   │   └── vector-store.service.ts   # Upstash Vector upsert + search
+│   │   ├── retrieval/                    # Semantic search endpoint
+│   │   ├── generation/                   # Groq LLM + chat history
+│   │   ├── health/                       # Health check endpoint
+│   │   └── common/guards/               # API key auth guard
+│   └── frontend/src/app/
+│       ├── page.tsx                      # Repository list + ingest form
+│       └── repo/[repoId]/page.tsx        # Chat + live ingestion logs
+├── docker-compose.yml                    # Production
+├── docker-compose.dev.yml                # Development (hot reload)
+└── nginx.conf                            # Reverse proxy (prod)
 ```
 
 ---
 
 ## Deployment (Oracle Cloud Free Tier)
 
-Oracle Always Free gives you a 4-core ARM VM with 24GB RAM — more than enough.
+Oracle Always Free gives a 4-core ARM VM with 24 GB RAM — plenty for this stack.
 
 ```bash
-# 1. SSH into your Oracle Cloud VM
-ssh ubuntu@your-vm-ip
-
-# 2. Install Docker
+# On the VM
 curl -fsSL https://get.docker.com | sh
 
-# 3. Clone and configure
-git clone https://github.com/yourusername/repowise-nestjs-rag-pipeline
-cd repowise-nestjs-rag-pipeline
+git clone https://github.com/yourusername/repowise
+cd repowise
 cp apps/backend/.env.example apps/backend/.env
-# Edit .env with production values
+# fill in production values
 
-# 4. Start
 docker-compose up -d
-
-# 5. Keep alive (add to cron-job.org)
-# Ping: GET https://your-vm-ip/api/health every 10 minutes
 ```
 
-> **Tip:** Point a free domain at your VM IP and add HTTPS with Certbot + Nginx for a polished demo URL.
+Add a cron job (e.g. via [cron-job.org](https://cron-job.org)) pinging `GET /health` every 10 minutes to keep the free VM from sleeping.
 
 ---
 
-## Project Structure
+## Notes
 
-```
-repowise-nestjs-rag-pipeline/
-├── .devcontainer/
-│   └── devcontainer.json         # VS Code dev container config
-├── .github/workflows/
-│   └── ci.yml                    # GitHub Actions CI
-├── apps/
-│   ├── backend/                  # NestJS application
-│   │   └── src/
-│   │       ├── ingest/           # Clone → chunk → embed → store
-│   │       │   ├── ingest.processor.ts   # BullMQ worker
-│   │       │   ├── clone.service.ts
-│   │       │   ├── chunking.service.ts
-│   │       │   ├── embedding.service.ts
-│   │       │   └── vector-store.service.ts
-│   │       ├── retrieval/        # Semantic search
-│   │       ├── generation/       # LLM + streaming
-│   │       ├── health/           # Keep-alive endpoint
-│   │       └── common/guards/    # API key auth
-│   └── frontend/                 # Next.js chat UI
-├── docker-compose.yml            # Production
-├── docker-compose.dev.yml        # Development (hot reload)
-└── nginx.conf                    # Reverse proxy
-```
+- **Gemini free tier** — 1500 embedding requests/day. With the default batch size of 25 chunks, a ~375-chunk repo uses the full daily quota. If ingestion fails with a rate-limit error after 5 retries, wait until midnight (Pacific) for the quota to reset.
+- **Job cancellation** — Deleting or restarting a repo sends `SIGTERM` to the worker child process, stopping ingestion instantly regardless of what it's doing (sleeping, waiting on network, etc.).
+- **Chat history** — Stored in Redis per repo; cleared automatically on restart or delete.
 
 ---
 

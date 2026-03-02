@@ -5,7 +5,7 @@ import type { Response } from 'express';
 import { IngestRepoDto } from './dto/ingest-repo.dto';
 import { ChatHistoryService } from '../generation/chat-history.service';
 import { VectorStoreService } from './vector-store.service';
-import { CancellationService } from './cancellation.service';
+import { IngestProcessor } from './ingest.processor';
 import { INGEST_QUEUE } from './constants';
 
 @Injectable()
@@ -16,7 +16,7 @@ export class IngestService implements OnModuleInit {
     @InjectQueue(INGEST_QUEUE) private readonly ingestQueue: Queue,
     private readonly chatHistoryService: ChatHistoryService,
     private readonly vectorStoreService: VectorStoreService,
-    private readonly cancellationService: CancellationService,
+    private readonly processor: IngestProcessor,
   ) {}
 
   async onModuleInit() {
@@ -139,8 +139,8 @@ export class IngestService implements OnModuleInit {
 
     const { repoUrl, repoId, includePatterns, branch } = job.data;
 
-    // Signal any active processor to stop before we delete its data
-    this.cancellationService.cancel(repoId);
+    // Kill any active worker for this repo immediately
+    this.processor.killWorker(repoId);
 
     // Delete existing vectors and old jobs so re-ingestion starts fresh
     await this.vectorStoreService.deleteByRepoId(repoId);
@@ -172,8 +172,8 @@ export class IngestService implements OnModuleInit {
     }
     this.ingestedRepos.delete(repoId);
 
-    // Signal any active processor to stop as soon as it checks
-    this.cancellationService.cancel(repoId);
+    // Kill any active worker for this repo immediately
+    this.processor.killWorker(repoId);
 
     // Remove all BullMQ jobs for this repo from Redis.
     // Promise.allSettled so active (locked) jobs that can't be removed don't abort the rest.
