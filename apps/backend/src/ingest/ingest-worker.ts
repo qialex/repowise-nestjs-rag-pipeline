@@ -21,6 +21,10 @@ import { ChunkingService } from './chunking.service';
 import { EmbeddingService } from './embedding.service';
 import { VectorStoreService } from './vector-store.service';
 
+// Hard cap: protects free-tier API quotas and prevents node_modules from
+// being accidentally indexed when exclude patterns fail.
+const MAX_CHUNKS = 500;
+
 // Minimal shim so services that depend on ConfigService can read from env.
 // Child processes inherit process.env from the parent automatically.
 const configShim = {
@@ -63,6 +67,15 @@ process.on('message', async (data: {
       chunkOverlap: 200,
     });
     await log(`Created ${chunks.length} chunks`);
+
+    if (chunks.length > MAX_CHUNKS) {
+      throw new Error(
+        `Repository produced ${chunks.length} chunks which exceeds the ${MAX_CHUNKS}-chunk limit. ` +
+        'This usually means node_modules or generated files are being indexed. ' +
+        'Check that **/node_modules/**, **/dist/**, and **/.git/** are excluded, ' +
+        'or use includePatterns to target specific directories.',
+      );
+    }
 
     // Step 3: Embed
     send({ type: 'progress', value: 60 });

@@ -30,7 +30,7 @@ export class GenerationService {
     try {
       this.llm = new ChatGroq({
         apiKey,
-        model: this.config.get('LLM_MODEL', 'llama-3.1-8b-instant'),
+        model: this.config.get('LLM_MODEL', 'llama-3.3-70b-versatile'),
         temperature: 0.2,
         streaming: true,
       });
@@ -89,7 +89,7 @@ export class GenerationService {
       const llm = this.getLlm();
 
       logStep('Retrieving relevant context...');
-      const results = await this.retrievalService.retrieve(question, repoId, 6);
+      const results = await this.retrievalService.retrieve(question, repoId, 100);
 
       if (results.length === 0) {
         logStep('No relevant context found.');
@@ -155,7 +155,7 @@ export class GenerationService {
   }
 
   private async buildContext(question: string, repoId?: string): Promise<string> {
-    const results = await this.retrievalService.retrieve(question, repoId, 6);
+    const results = await this.retrievalService.retrieve(question, repoId, 100);
     return this.retrievalService.formatContext(results);
   }
 

@@ -73,6 +73,8 @@ export class IngestProcessor extends WorkerHost {
             break;
           case 'error':
             this.activeWorkers.delete(repoId);
+            this.logger.error(`[${repoId}] ${msg.message}`);
+            await job.log(`Error: ${msg.message}`);
             reject(new Error(msg.message));
             break;
         }
