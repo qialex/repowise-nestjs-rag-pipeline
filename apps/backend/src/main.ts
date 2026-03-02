@@ -1,3 +1,9 @@
+import * as path from 'path';
+import * as dotenv from 'dotenv';
+// Load .env before any module initialises — override: true ensures .env wins
+// over any stale shell/Docker env vars (e.g. REDIS_HOST=redis from a previous run)
+dotenv.config({ path: path.join(__dirname, '..', '.env'), override: true });
+
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';

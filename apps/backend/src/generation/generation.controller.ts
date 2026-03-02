@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Res, Param, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Body, Res, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiSecurity } from '@nestjs/swagger';
 import { Response } from 'express';
 import { GenerationService } from './generation.service';
@@ -39,5 +39,12 @@ export class GenerationController {
   @ApiOperation({ summary: 'Get chat history for a repository' })
   async getHistory(@Param('repoId') repoId: string) {
     return this.chatHistoryService.getHistory(repoId);
+  }
+
+  @Delete('history/:repoId')
+  @ApiOperation({ summary: 'Clear chat history for a repository' })
+  async clearHistory(@Param('repoId') repoId: string) {
+    await this.chatHistoryService.clearHistory(repoId);
+    return { ok: true };
   }
 }

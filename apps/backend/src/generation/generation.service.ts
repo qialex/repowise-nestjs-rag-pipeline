@@ -1,6 +1,6 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ChatOpenAI } from '@langchain/openai';
+import { ChatGroq } from '@langchain/groq';
 import { HumanMessage, SystemMessage, AIMessage } from '@langchain/core/messages';
 import { RetrievalService } from '../retrieval/retrieval.service';
 import { ChatHistoryService } from './chat-history.service';
@@ -9,7 +9,7 @@ import { Response } from 'express';
 @Injectable()
 export class GenerationService {
   private readonly logger = new Logger(GenerationService.name);
-  private llm: ChatOpenAI | null = null;
+  private llm: ChatGroq | null = null;
 
   constructor(
     private readonly config: ConfigService,
@@ -20,33 +20,33 @@ export class GenerationService {
   }
 
   private initLlm(): void {
-    const apiKey = this.config.get<string>('OPENAI_API_KEY');
-    if (!apiKey || apiKey.includes('your-') || apiKey === 'sk-...') {
+    const apiKey = this.config.get<string>('GROQ_API_KEY');
+    if (!apiKey || apiKey.includes('your-')) {
       this.logger.warn(
-        'OPENAI_API_KEY is not configured. Generation features will be unavailable until it is set.',
+        'GROQ_API_KEY is not configured. Generation features will be unavailable until it is set.',
       );
       return;
     }
     try {
-      this.llm = new ChatOpenAI({
-        openAIApiKey: apiKey,
-        modelName: this.config.get('LLM_MODEL', 'gpt-4o-mini'),
+      this.llm = new ChatGroq({
+        apiKey,
+        model: this.config.get('LLM_MODEL', 'llama-3.1-8b-instant'),
         temperature: 0.2,
         streaming: true,
       });
     } catch (error) {
-      this.logger.error('Failed to initialize ChatOpenAI client', error);
+      this.logger.error('Failed to initialize ChatGroq client', error);
     }
   }
 
-  private getLlm(): ChatOpenAI {
+  private getLlm(): ChatGroq {
     if (!this.llm) {
       this.initLlm();
     }
     if (!this.llm) {
       throw new ServiceUnavailableException(
-        'Generation service is unavailable. OPENAI_API_KEY is not configured or invalid. ' +
-        'Set a valid OPENAI_API_KEY environment variable and restart the server.',
+        'Generation service is unavailable. GROQ_API_KEY is not configured or invalid. ' +
+        'Set a valid GROQ_API_KEY environment variable and restart the server.',
       );
     }
     return this.llm;
@@ -82,6 +82,9 @@ export class GenerationService {
       emit({ log: msg });
     };
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(new Error('LLM request timed out after 90s')), 90_000);
+
     try {
       const llm = this.getLlm();
 
@@ -103,24 +106,39 @@ export class GenerationService {
         m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content),
       );
 
-      const stream = await llm.stream([
-        new SystemMessage(this.systemPrompt()),
-        ...historyMessages,
-        new HumanMessage(`Context:\n${context}\n\nQuestion: ${question}`),
-      ]);
+      const stream = await llm.stream(
+        [
+          new SystemMessage(this.systemPrompt()),
+          ...historyMessages,
+          new HumanMessage(`Context:\n${context}\n\nQuestion: ${question}`),
+        ],
+        { signal: controller.signal },
+      );
 
       for await (const chunk of stream) {
-        const text = chunk.content as string;
+        // chunk.content is a string for normal text, or an array of parts for multimodal
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const text = typeof chunk.content === 'string'
+          ? chunk.content
+          : Array.isArray(chunk.content)
+            ? chunk.content.map((p: any) => p.text ?? '').join('')
+            : '';
         if (text) {
           fullResponse += text;
           emit({ text });
         }
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const isTimeout = controller.signal.aborted;
+      const message = isTimeout
+        ? 'Request timed out — the model may be rate-limited or unavailable. Try again in a moment.'
+        : (err instanceof Error ? err.message : String(err));
+      this.logger.error(`askStream error: ${message}`);
       logStep(`Error: ${message}`);
       fullResponse = message;
       emit({ text: fullResponse });
+    } finally {
+      clearTimeout(timeout);
     }
 
     // Always persist — logs stored alongside the assistant message

@@ -94,8 +94,9 @@ export class VectorStoreService {
   }
 
   async deleteByRepoId(repoId: string): Promise<void> {
-    // Upstash Vector supports delete by filter in paid plans
-    // For free tier, this is a no-op placeholder
-    this.logger.warn(`Delete by repoId not supported on free tier — vectors for ${repoId} remain`);
+    const index = this.getIndex();
+    // IDs are stored as `${repoId}-chunk-${i}` — delete by prefix covers all chunks
+    const result = await index.delete({ prefix: `${repoId}-chunk-` });
+    this.logger.log(`Deleted ${result.deleted} vectors for repo ${repoId}`);
   }
 }

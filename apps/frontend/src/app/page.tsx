@@ -36,6 +36,7 @@ export default function Home() {
   const [isIngesting, setIsIngesting] = useState(false);
   const [restarting, setRestarting] = useState<string | null>(null);
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
+  const [restartingDialogRepoId, setRestartingDialogRepoId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -55,20 +56,21 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  const deleteRepo = async (e: React.MouseEvent, repo: Repo) => {
-    e.stopPropagation();
+  const deleteRepo = async (repo: Repo) => {
     try {
       await fetch(`${API_URL}/ingest/repo/${repo.repoId}`, { method: 'DELETE', headers });
+      setDeletingRepoId(null);
       setRepos((prev) => prev.filter((r) => r.repoId !== repo.repoId));
     } catch {
       fetchRepos();
     }
   };
 
-  const restartRepo = async (e: React.MouseEvent, repo: Repo) => {
-    e.stopPropagation();
+  const restartRepo = async (repo: Repo) => {
+    setRestartingDialogRepoId(null);
     setRestarting(repo.repoId);
     try {
+      await fetch(`${API_URL}/ask/history/${repo.repoId}`, { method: 'DELETE', headers });
       const res = await fetch(`${API_URL}/ingest/restart/${repo.jobId}`, { method: 'POST', headers });
       const data = await res.json();
       setRepos((prev) => prev.map((r) => r.repoId === repo.repoId ? { ...r, jobId: data.jobId, status: 'waiting' } : r));
@@ -199,7 +201,7 @@ export default function Home() {
                     size="icon"
                     className="shrink-0"
                     disabled={restarting === repo.repoId}
-                    onClick={(e) => restartRepo(e, repo)}
+                    onClick={(e) => { e.stopPropagation(); setRestartingDialogRepoId(repo.repoId); }}
                     title="Restart ingestion"
                   >
                     <RotateCcw className={`w-4 h-4 ${restarting === repo.repoId ? 'animate-spin' : ''}`} />
@@ -221,7 +223,39 @@ export default function Home() {
         </div>
       </ScrollArea>
 
-      {/* Single delete dialog rendered outside the list */}
+      {/* Restart confirmation dialog */}
+      {(() => {
+        const restartingRepo = repos.find((r) => r.repoId === restartingDialogRepoId) ?? null;
+        return (
+          <Dialog open={restartingDialogRepoId !== null} onOpenChange={(open) => !open && setRestartingDialogRepoId(null)}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Restart ingestion?</DialogTitle>
+                <DialogDescription>
+                  This will re-ingest{' '}
+                  <span className="font-medium text-foreground">
+                    {restartingRepo?.repoUrl.replace('https://github.com/', '')}
+                  </span>{' '}
+                  and clear the chat history.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <button className={buttonVariants({ variant: 'outline' })} onClick={() => setRestartingDialogRepoId(null)}>
+                  Cancel
+                </button>
+                <button
+                  className={buttonVariants()}
+                  onClick={() => restartingRepo && restartRepo(restartingRepo)}
+                >
+                  Restart
+                </button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
+
+      {/* Delete confirmation dialog */}
       <Dialog open={deletingRepoId !== null} onOpenChange={(open) => !open && setDeletingRepoId(null)}>
         <DialogContent>
           <DialogHeader>
@@ -240,7 +274,7 @@ export default function Home() {
             </button>
             <button
               className={buttonVariants({ variant: 'destructive' })}
-              onClick={(e) => deletingRepo && deleteRepo(e, deletingRepo)}
+              onClick={() => deletingRepo && deleteRepo(deletingRepo)}
             >
               Remove
             </button>

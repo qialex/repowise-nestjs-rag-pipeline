@@ -6,6 +6,7 @@ import { CloneService } from './clone.service';
 import { ChunkingService } from './chunking.service';
 import { EmbeddingService } from './embedding.service';
 import { VectorStoreService } from './vector-store.service';
+import { CancellationService } from './cancellation.service';
 import { IngestProcessor } from './ingest.processor';
 import { ChatModule } from '../chat/chat.module';
 import { INGEST_QUEUE } from './constants';
@@ -22,6 +23,7 @@ import { INGEST_QUEUE } from './constants';
     ChunkingService,
     EmbeddingService,
     VectorStoreService,
+    CancellationService,
     IngestProcessor,
   ],
   exports: [VectorStoreService, EmbeddingService],

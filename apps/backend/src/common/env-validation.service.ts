@@ -19,13 +19,15 @@ export class EnvValidationService implements OnModuleInit {
   }
 
   private validate() {
-    this.checkVar('OPENAI_API_KEY', 'Required for embeddings and LLM generation', (v) =>
-      v.startsWith('sk-') ? undefined : 'Must start with "sk-"',
+    this.checkVar('GROQ_API_KEY', 'Required for LLM chat generation', (v) =>
+      v.startsWith('gsk_') ? undefined : 'Must start with "gsk_"',
+    );
+    this.checkVar('GOOGLE_API_KEY', 'Required for embeddings', (v) =>
+      v.startsWith('AIza') ? undefined : 'Must start with "AIza"',
     );
     this.checkVar('UPSTASH_VECTOR_URL', 'Required for vector store');
     this.checkVar('UPSTASH_VECTOR_TOKEN', 'Required for vector store');
     this.checkVar('REDIS_HOST', 'Required for BullMQ job queue');
-    this.checkVar('REDIS_PASSWORD', 'Required for Redis authentication');
 
     const problems = this.issues.filter((i) => !i.configured);
     if (problems.length > 0) {
@@ -68,7 +70,7 @@ export class EnvValidationService implements OnModuleInit {
 
   private isPlaceholder(value: string | undefined): boolean {
     if (!value) return true;
-    const placeholders = ['your-', 'sk-...', 'changeme', 'xxx', 'TODO', 'REPLACE'];
+    const placeholders = ['your-', 'sk-...', 'gsk_...', 'AIza...', 'changeme', 'xxx', 'TODO', 'REPLACE'];
     return placeholders.some((p) => value.toLowerCase().includes(p.toLowerCase()));
   }
 

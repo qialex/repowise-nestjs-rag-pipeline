@@ -4,6 +4,8 @@ import { Queue } from 'bullmq';
 import type { Response } from 'express';
 import { IngestRepoDto } from './dto/ingest-repo.dto';
 import { ChatHistoryService } from '../generation/chat-history.service';
+import { VectorStoreService } from './vector-store.service';
+import { CancellationService } from './cancellation.service';
 import { INGEST_QUEUE } from './constants';
 
 @Injectable()
@@ -13,6 +15,8 @@ export class IngestService implements OnModuleInit {
   constructor(
     @InjectQueue(INGEST_QUEUE) private readonly ingestQueue: Queue,
     private readonly chatHistoryService: ChatHistoryService,
+    private readonly vectorStoreService: VectorStoreService,
+    private readonly cancellationService: CancellationService,
   ) {}
 
   async onModuleInit() {
@@ -92,8 +96,11 @@ export class IngestService implements OnModuleInit {
     const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
     const poll = setInterval(async () => {
-      const state = await job.getState();
-      const progress = job.progress as number;
+      // Re-fetch the job on every tick so progress reflects the latest value from Redis
+      const fresh = await this.ingestQueue.getJob(jobId);
+      if (!fresh) return;
+      const state = await fresh.getState();
+      const progress = fresh.progress as number;
       const { logs } = await this.ingestQueue.getJobLogs(jobId);
 
       // Send any new log lines
@@ -132,6 +139,13 @@ export class IngestService implements OnModuleInit {
 
     const { repoUrl, repoId, includePatterns, branch } = job.data;
 
+    // Signal any active processor to stop before we delete its data
+    this.cancellationService.cancel(repoId);
+
+    // Delete existing vectors and old jobs so re-ingestion starts fresh
+    await this.vectorStoreService.deleteByRepoId(repoId);
+    await this.removeJobsForRepo(repoId);
+
     const newJob = await this.ingestQueue.add(
       'clone-and-embed',
       { repoUrl, repoId, includePatterns, branch },
@@ -157,8 +171,30 @@ export class IngestService implements OnModuleInit {
       throw new NotFoundException(`Repository ${repoId} not found`);
     }
     this.ingestedRepos.delete(repoId);
-    await this.chatHistoryService.clearHistory(repoId);
-    // TODO: also delete vectors from vector store by repoId metadata filter
+
+    // Signal any active processor to stop as soon as it checks
+    this.cancellationService.cancel(repoId);
+
+    // Remove all BullMQ jobs for this repo from Redis.
+    // Promise.allSettled so active (locked) jobs that can't be removed don't abort the rest.
+    await this.removeJobsForRepo(repoId);
+
+    await Promise.all([
+      this.chatHistoryService.clearHistory(repoId),
+      this.vectorStoreService.deleteByRepoId(repoId),
+    ]);
+  }
+
+  private async removeJobsForRepo(repoId: string): Promise<void> {
+    try {
+      const jobs = await this.ingestQueue.getJobs(
+        ['waiting', 'active', 'completed', 'failed', 'delayed'],
+        0, 1000,
+      );
+      await Promise.allSettled(
+        jobs.filter((j) => j.data?.repoId === repoId).map((j) => j.remove()),
+      );
+    } catch {}
   }
 
   private repoUrlToId(url: string): string {

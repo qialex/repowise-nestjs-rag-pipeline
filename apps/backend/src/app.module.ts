@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { Module, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
@@ -21,7 +22,11 @@ function isRedisConfigured(config: ConfigService): boolean {
 @Module({
   imports: [
     // Config — loads .env
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      // Explicit path so it works regardless of process CWD (e.g. monorepo root in Docker dev)
+      envFilePath: path.join(__dirname, '..', '.env'),
+    }),
 
     // Rate limiting
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 20 }]),
@@ -53,6 +58,10 @@ function isRedisConfigured(config: ConfigService): boolean {
             port: config.get<number>('REDIS_PORT', 6379),
             password: config.get('REDIS_PASSWORD'),
             tls: config.get('REDIS_TLS') === 'true' ? {} : undefined,
+            // Required for BullMQ workers — prevents ioredis from timing out
+            // on blocking commands (BRPOPLPUSH / BLMOVE) used by the queue
+            maxRetriesPerRequest: null,
+            enableReadyCheck: false,
           },
         };
       },

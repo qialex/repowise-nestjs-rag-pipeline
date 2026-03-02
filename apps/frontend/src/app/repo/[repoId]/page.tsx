@@ -45,6 +45,7 @@ export default function RepoPage() {
   const [isAsking, setIsAsking] = useState(false);
   const [expandedLogs, setExpandedLogs] = useState<Set<number>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [restartDialogOpen, setRestartDialogOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const logsBottomRef = useRef<HTMLDivElement>(null);
 
@@ -202,13 +203,16 @@ export default function RepoPage() {
   const deleteRepo = async () => {
     try {
       await fetch(`${API_URL}/ingest/repo/${repoId}`, { method: 'DELETE', headers });
+      setDeleteDialogOpen(false);
       router.push('/');
     } catch {}
   };
 
   const restart = async () => {
     if (!jobId) return;
+    setRestartDialogOpen(false);
     try {
+      await fetch(`${API_URL}/ask/history/${repoId}`, { method: 'DELETE', headers });
       const res = await fetch(`${API_URL}/ingest/restart/${jobId}`, { method: 'POST', headers });
       const { jobId: newJobId } = await res.json();
       setLogs([]);
@@ -245,12 +249,26 @@ export default function RepoPage() {
           <p className="text-xs text-muted-foreground">github.com/{decodeURIComponent(repoId).replace('-', '/')}</p>
         </div>
         <Badge variant={stateVariant[ingestState]}>{STATUS_LABEL[ingestState]}</Badge>
-        <Button variant="outline" size="icon" onClick={restart} title="Restart ingestion">
+        <Button variant="outline" size="icon" onClick={() => setRestartDialogOpen(true)} title="Restart ingestion">
           <RotateCcw className="w-4 h-4" />
         </Button>
         <Button variant="outline" size="icon" title="Remove repository" className="text-destructive hover:text-destructive" onClick={() => setDeleteDialogOpen(true)}>
           <Trash2 className="w-4 h-4" />
         </Button>
+        <Dialog open={restartDialogOpen} onOpenChange={setRestartDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Restart ingestion?</DialogTitle>
+              <DialogDescription>
+                This will re-ingest <span className="font-medium text-foreground">{decodeURIComponent(repoId)}</span> and clear the chat history.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setRestartDialogOpen(false)}>Cancel</Button>
+              <Button onClick={restart}>Restart</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
           <DialogContent>
             <DialogHeader>
