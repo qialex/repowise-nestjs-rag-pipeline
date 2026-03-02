@@ -44,9 +44,7 @@ export default function RepoPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const logsBottomRef = useRef<HTMLDivElement>(null);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-  const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
-  const headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY };
+  const headers = { 'Content-Type': 'application/json' };
 
   // Load existing logs if job is already done, or stream if active
   useEffect(() => {
@@ -56,7 +54,7 @@ export default function RepoPage() {
 
     const stream = async () => {
       // First check current state
-      const statusRes = await fetch(`${API_URL}/ingest/status/${jobId}`, { headers });
+      const statusRes = await fetch(`/api/ingest/status/${jobId}`, { headers });
       const status = await statusRes.json();
 
       if (status.state === 'completed' || status.state === 'failed') {
@@ -69,7 +67,7 @@ export default function RepoPage() {
       setIngestState(status.state === 'active' ? 'active' : 'waiting');
 
       // Stream live logs via SSE
-      const res = await fetch(`${API_URL}/ingest/logs/${jobId}`, { headers });
+      const res = await fetch(`/api/ingest/logs/${jobId}`, { headers });
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -99,7 +97,7 @@ export default function RepoPage() {
 
     stream().catch(async () => {
       try {
-        const statusRes = await fetch(`${API_URL}/ingest/status/${jobId}`, { headers });
+        const statusRes = await fetch(`/api/ingest/status/${jobId}`, { headers });
         const status = await statusRes.json();
         setIngestState(status.state ?? 'failed');
         if (status.logs) setLogs(status.logs);
@@ -115,7 +113,7 @@ export default function RepoPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch(`${API_URL}/ask/history/${repoId}`, { headers });
+        const res = await fetch(`/api/ask/history/${repoId}`, { headers });
         const history: Array<{ role: 'user' | 'assistant'; content: string; logs?: string[] }> = await res.json();
         if (history.length > 0) {
           setMessages(history.map((m) => ({ role: m.role, content: m.content, logs: m.logs })));
@@ -141,7 +139,7 @@ export default function RepoPage() {
     setMessages((prev) => [...prev, { role: 'user', content: question }, { role: 'assistant', content: '', logs: [] }]);
 
     try {
-      const res = await fetch(`${API_URL}/ask/stream`, {
+      const res = await fetch(`/api/ask/stream`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ question, repoId }),
@@ -197,7 +195,7 @@ export default function RepoPage() {
 
   const deleteRepo = async () => {
     try {
-      await fetch(`${API_URL}/ingest/repo/${repoId}`, { method: 'DELETE', headers });
+      await fetch(`/api/ingest/repo/${repoId}`, { method: 'DELETE', headers });
       setDeleteDialogOpen(false);
       router.push('/');
     } catch {}
@@ -207,8 +205,8 @@ export default function RepoPage() {
     if (!jobId) return;
     setRestartDialogOpen(false);
     try {
-      await fetch(`${API_URL}/ask/history/${repoId}`, { method: 'DELETE', headers });
-      const res = await fetch(`${API_URL}/ingest/restart/${jobId}`, { method: 'POST', headers });
+      await fetch(`/api/ask/history/${repoId}`, { method: 'DELETE', headers });
+      const res = await fetch(`/api/ingest/restart/${jobId}`, { method: 'POST', headers });
       const { jobId: newJobId } = await res.json();
       setLogs([]);
       setProgress(0);

@@ -32,12 +32,10 @@ export default function Home() {
   const [restartingDialogRepoId, setRestartingDialogRepoId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-  const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
-  const headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY };
+  const headers = { 'Content-Type': 'application/json' };
 
   const fetchRepos = () => {
-    fetch(`${API_URL}/ingest/repos`, { headers })
+    fetch(`/api/ingest/repos`, { headers })
       .then((r) => r.json())
       .then(setRepos)
       .catch(() => {});
@@ -51,7 +49,7 @@ export default function Home() {
 
   const deleteRepo = async (repo: Repo) => {
     try {
-      await fetch(`${API_URL}/ingest/repo/${repo.repoId}`, { method: 'DELETE', headers });
+      await fetch(`/api/ingest/repo/${repo.repoId}`, { method: 'DELETE', headers });
       setDeletingRepoId(null);
       setRepos((prev) => prev.filter((r) => r.repoId !== repo.repoId));
     } catch {
@@ -63,8 +61,8 @@ export default function Home() {
     setRestartingDialogRepoId(null);
     setRestarting(repo.repoId);
     try {
-      await fetch(`${API_URL}/ask/history/${repo.repoId}`, { method: 'DELETE', headers });
-      const res = await fetch(`${API_URL}/ingest/restart/${repo.jobId}`, { method: 'POST', headers });
+      await fetch(`/api/ask/history/${repo.repoId}`, { method: 'DELETE', headers });
+      const res = await fetch(`/api/ingest/restart/${repo.jobId}`, { method: 'POST', headers });
       const data = await res.json();
       setRepos((prev) => prev.map((r) => r.repoId === repo.repoId ? { ...r, jobId: data.jobId, status: 'waiting' } : r));
     } catch {
@@ -86,7 +84,7 @@ export default function Home() {
     setIsIngesting(true);
 
     try {
-      const res = await fetch(`${API_URL}/ingest/repo`, {
+      const res = await fetch(`/api/ingest/repo`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ repoUrl }),
