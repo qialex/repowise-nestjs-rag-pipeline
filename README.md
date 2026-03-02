@@ -16,12 +16,12 @@
 ┌───────────────────────────▼──────────────────────────────┐
 │                     NestJS Backend                       │
 │                                                          │
-│  ┌──────────────┐  ┌─────────────────┐  ┌─────────────┐ │
-│  │ IngestModule │  │ RetrievalModule │  │  GenModule  │ │
-│  │              │  │                 │  │             │ │
-│  │ BullMQ queue │  │  Embed query    │  │  Groq LLM   │ │
-│  │ + fork() per │  │  Vector search  │  │  SSE stream │ │
-│  │   job        │  └─────────────────┘  └─────────────┘ │
+│  ┌──────────────┐  ┌─────────────────┐  ┌─────────────┐  │
+│  │ IngestModule │  │ RetrievalModule │  │  GenModule  │  │
+│  │              │  │                 │  │             │  │
+│  │ BullMQ queue │  │  Embed query    │  │  Groq LLM   │  │
+│  │ + fork() per │  │  Vector search  │  │  SSE stream │  │
+│  │   job        │  └─────────────────┘  └─────────────┘  │
 │  └──────┬───────┘                                        │
 └─────────┼────────────────────────────────────────────────┘
           │ child_process.fork()
