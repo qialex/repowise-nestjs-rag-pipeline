@@ -11,14 +11,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
+import type { ChatMessage, IngestState } from '@repowise/shared';
 
-interface Message {
-  role: 'user' | 'assistant';
-  content: string;
-  logs?: string[];
-}
-
-type IngestState = 'waiting' | 'active' | 'completed' | 'failed' | 'unknown';
+type Message = ChatMessage;
 
 const STATUS_LABEL: Record<IngestState, string> = {
   waiting: 'queued',

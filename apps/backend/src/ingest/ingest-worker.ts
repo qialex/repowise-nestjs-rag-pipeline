@@ -20,10 +20,7 @@ import { CloneService } from './clone.service';
 import { ChunkingService } from './chunking.service';
 import { EmbeddingService } from './embedding.service';
 import { VectorStoreService } from './vector-store.service';
-
-// Hard cap: protects free-tier API quotas and prevents node_modules from
-// being accidentally indexed when exclude patterns fail.
-const MAX_CHUNKS = 500;
+import { MAX_CHUNKS } from '@repowise/shared';
 
 // Minimal shim so services that depend on ConfigService can read from env.
 // Child processes inherit process.env from the parent automatically.

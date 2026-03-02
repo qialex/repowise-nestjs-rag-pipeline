@@ -55,6 +55,9 @@ importers:
       '@nestjs/throttler':
         specifier: ^6.5.0
         version: 6.5.0(@nestjs/common@11.1.14(class-transformer@0.5.1)(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.14)(reflect-metadata@0.2.2)
+      '@repowise/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@upstash/vector':
         specifier: ^1.2.2
         version: 1.2.2
@@ -143,6 +146,9 @@ importers:
       '@radix-ui/react-slot':
         specifier: ^1.2.4
         version: 1.2.4(@types/react@18.3.28)(react@18.3.1)
+      '@repowise/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       ai:
         specifier: ^3.0.0
         version: 3.4.33(openai@4.104.0(ws@8.19.0)(zod@4.3.6))(react@18.3.1)(sswr@2.2.0(svelte@5.53.3))(svelte@5.53.3)(vue@3.5.29(typescript@5.9.3))(zod@4.3.6)
@@ -186,6 +192,12 @@ importers:
       tailwindcss:
         specifier: ^3.0.0
         version: 3.4.19(yaml@2.8.2)
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+
+  packages/shared:
+    devDependencies:
       typescript:
         specifier: ^5.0.0
         version: 5.9.3

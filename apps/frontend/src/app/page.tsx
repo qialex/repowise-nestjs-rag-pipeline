@@ -12,6 +12,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { buttonVariants } from '@/components/ui/button';
+import type { Repo } from '@repowise/shared';
 
 const STATUS_LABEL: Record<string, string> = {
   waiting: 'queued',
@@ -20,14 +21,6 @@ const STATUS_LABEL: Record<string, string> = {
   failed: 'failed',
   unknown: 'unknown',
 };
-
-interface Repo {
-  repoId: string;
-  repoUrl: string;
-  ingestedAt: string;
-  status: string;
-  jobId: string;
-}
 
 export default function Home() {
   const router = useRouter();

@@ -12,6 +12,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@repowise/shared": "workspace:*",
     "@google/generative-ai": "^0.24.1",
     "@langchain/community": "^1.1.19",
     "@langchain/core": "^1.1.29",

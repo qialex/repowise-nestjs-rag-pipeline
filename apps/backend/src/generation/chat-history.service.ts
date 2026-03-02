@@ -1,12 +1,9 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
+import { ChatMessage } from '@repowise/shared';
 
-export interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  logs?: string[];
-}
+export type { ChatMessage };
 
 const HISTORY_KEY = (repoId: string) => `chat:history:${repoId}`;
 const MAX_MESSAGES = 20;
