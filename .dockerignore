@@ -1,0 +1,11 @@
+**/node_modules
+**/.pnpm-store
+**/dist
+**/.next
+**/.turbo
+**/.cache
+**/*.log
+.git
+.github
+.vscode
+.devcontainer

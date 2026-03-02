@@ -37,7 +37,7 @@ export default function Home() {
   const fetchRepos = () => {
     fetch(`/api/ingest/repos`, { headers })
       .then((r) => r.json())
-      .then(setRepos)
+      .then((data) => { if (Array.isArray(data)) setRepos(data); })
       .catch(() => {});
   };
 

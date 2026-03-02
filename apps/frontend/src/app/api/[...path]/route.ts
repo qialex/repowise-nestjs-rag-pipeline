@@ -1,9 +1,11 @@
 import { NextRequest } from 'next/server';
 
-const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:3001';
-const API_KEY = process.env.API_KEY ?? '';
-
 async function proxy(req: NextRequest, params: { path: string[] }) {
+  const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:3001';
+  const API_KEY = process.env.API_KEY ?? '';
+
+  console.log('[proxy] path:', params.path.join('/'), '| backendUrl:', `${BACKEND_URL}/${params.path.join('/')}`, '| API_KEY length:', API_KEY.length, '| first8:', API_KEY.slice(0, 8));
+
   const url = new URL(req.url);
   const backendUrl = `${BACKEND_URL}/${params.path.join('/')}${url.search}`;
 
