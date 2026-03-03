@@ -47,7 +47,7 @@
 
 1. User asks a question → `POST /ask/stream`
 2. Backend embeds the query (Gemini), retrieves top-K chunks from Upstash Vector
-3. Streams the LLM answer (Groq / Llama 3.1) token-by-token via SSE
+3. Streams the LLM answer (Groq / Llama 3.3) token-by-token via SSE
 
 ---
 
@@ -59,12 +59,13 @@
 | Job queue | BullMQ 5 + Upstash Redis |
 | Embeddings | Google Gemini (`gemini-embedding-001`, 1536 dims) |
 | Vector store | Upstash Vector |
-| LLM / chat | Groq (`llama-3.1-8b-instant`) |
+| LLM / chat | Groq (`llama-3.3-70b-versatile`) |
 | RAG framework | LangChain.js |
+| Database | Neon Postgres (repo metadata + chat history) |
 | Frontend | Next.js 14 (App Router) |
 | Styling | Tailwind CSS + Radix UI |
 | Dev environment | VS Code Dev Containers |
-| Deployment | Docker Compose + Nginx |
+| Deployment | Railway (backend) + Vercel (frontend) |
 
 ---
 
@@ -74,6 +75,7 @@ Free-tier accounts required:
 
 | Service | Used for | Sign-up |
 |---|---|---|
+| [Neon](https://neon.tech) | Postgres database | Free |
 | [Upstash](https://upstash.com) | Redis (job queue) + Vector DB | Free |
 | [Groq](https://console.groq.com) | LLM chat (very fast, free tier) | Free |
 | [Google AI Studio](https://aistudio.google.com) | Gemini embeddings (1500 req/day free) | Free |
@@ -97,10 +99,13 @@ Edit `apps/backend/.env`:
 ```env
 # Groq — free LLM (https://console.groq.com)
 GROQ_API_KEY=gsk_...
-LLM_MODEL=llama-3.1-8b-instant
+LLM_MODEL=llama-3.3-70b-versatile
 
 # Google Gemini — free embeddings (https://aistudio.google.com)
 GOOGLE_API_KEY=AIza...
+
+# Neon Postgres (https://neon.tech)
+DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
 
 # Upstash Redis — job queue (https://console.upstash.com)
 REDIS_HOST=your-host.upstash.io
@@ -122,8 +127,8 @@ FRONTEND_URL=http://localhost:3000
 Edit `apps/frontend/.env`:
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:3001
-NEXT_PUBLIC_API_KEY=any-secret-string   # same as API_KEY above
+BACKEND_URL=http://localhost:3001
+API_KEY=any-secret-string   # same as API_KEY above
 ```
 
 ### 2. Run (Dev Container — recommended)
@@ -131,13 +136,13 @@ NEXT_PUBLIC_API_KEY=any-secret-string   # same as API_KEY above
 Open the repo in VS Code and select **"Reopen in Container"**.
 NestJS, Next.js, and a local Redis instance start automatically with hot reload.
 
-### 2. Run (Docker Compose)
+### 3. Run (Docker Compose)
 
 ```bash
 docker-compose -f docker-compose.dev.yml up
 ```
 
-### 2. Run (bare Node.js)
+### 4. Run (bare Node.js)
 
 ```bash
 pnpm install
@@ -212,6 +217,7 @@ repowise/
 │   └── frontend/src/app/
 │       ├── page.tsx                      # Repository list + ingest form
 │       └── repo/[repoId]/page.tsx        # Chat + live ingestion logs
+├── packages/shared/                      # Shared TypeScript types
 ├── docker-compose.yml                    # Production
 ├── docker-compose.dev.yml                # Development (hot reload)
 └── nginx.conf                            # Reverse proxy (prod)
@@ -219,14 +225,24 @@ repowise/
 
 ---
 
-## Deployment (Oracle Cloud Free Tier)
+## Deployment
 
-Oracle Always Free gives a 4-core ARM VM with 24 GB RAM — plenty for this stack.
+### Railway (backend)
+
+Set all backend environment variables in the Railway dashboard. The `railway.toml` is pre-configured:
+
+- **Build:** `pnpm --filter @repowise/shared build && pnpm --filter @repowise/backend build`
+- **Start:** `node apps/backend/dist/main`
+- **Health check:** `GET /health`
+
+### Vercel (frontend)
+
+Set `BACKEND_URL` and `API_KEY` in the Vercel dashboard. The `vercel.json` is pre-configured.
+
+### Docker Compose (self-hosted)
 
 ```bash
-# On the VM
-curl -fsSL https://get.docker.com | sh
-
+# On your server
 git clone https://github.com/yourusername/repowise
 cd repowise
 cp apps/backend/.env.example apps/backend/.env
@@ -235,15 +251,13 @@ cp apps/backend/.env.example apps/backend/.env
 docker-compose up -d
 ```
 
-Add a cron job (e.g. via [cron-job.org](https://cron-job.org)) pinging `GET /health` every 10 minutes to keep the free VM from sleeping.
-
 ---
 
 ## Notes
 
 - **Gemini free tier** — 1500 embedding requests/day. With the default batch size of 25 chunks, a ~375-chunk repo uses the full daily quota. If ingestion fails with a rate-limit error after 5 retries, wait until midnight (Pacific) for the quota to reset.
-- **Job cancellation** — Deleting or restarting a repo sends `SIGTERM` to the worker child process, stopping ingestion instantly regardless of what it's doing (sleeping, waiting on network, etc.).
-- **Chat history** — Stored in Redis per repo; cleared automatically on restart or delete.
+- **Job cancellation** — Deleting or restarting a repo sends `SIGTERM` to the worker child process, stopping ingestion instantly regardless of what it's doing.
+- **Chat history** — Stored in Neon Postgres per repo; cleared automatically on restart or delete.
 
 ---
 
