@@ -8,6 +8,9 @@
     "start:dev": "pnpm exec nest start --watch",
     "start:debug": "pnpm exec nest start --debug 0.0.0.0:9229 --watch",
     "start:prod": "node dist/main",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
     "test": "jest"
   },
