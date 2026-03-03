@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { DbModule } from './db/db.module';
 import { IngestModule } from './ingest/ingest.module';
 import { RetrievalModule } from './retrieval/retrieval.module';
 import { GenerationModule } from './generation/generation.module';
@@ -69,6 +70,9 @@ function isRedisConfigured(config: ConfigService): boolean {
 
     // Cron jobs
     ScheduleModule.forRoot(),
+
+    // Database
+    DbModule,
 
     // Feature modules
     IngestModule,

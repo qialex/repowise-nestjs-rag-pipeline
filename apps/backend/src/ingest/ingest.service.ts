@@ -1,53 +1,27 @@
-import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { eq } from 'drizzle-orm';
 import type { Response } from 'express';
 import { IngestRepoDto } from './dto/ingest-repo.dto';
-import { ChatHistoryService } from '../generation/chat-history.service';
 import { VectorStoreService } from './vector-store.service';
 import { IngestProcessor } from './ingest.processor';
+import { ChatHistoryService } from '../generation/chat-history.service';
+import { DbService } from '../db/db.service';
+import { repos } from '../db/schema';
 import { INGEST_QUEUE } from './constants';
 
 @Injectable()
-export class IngestService implements OnModuleInit {
-  private readonly ingestedRepos = new Map<string, { repoUrl: string; ingestedAt: Date; status: string; jobId: string }>();
+export class IngestService {
+  private readonly logger = new Logger(IngestService.name);
 
   constructor(
     @InjectQueue(INGEST_QUEUE) private readonly ingestQueue: Queue,
     private readonly chatHistoryService: ChatHistoryService,
     private readonly vectorStoreService: VectorStoreService,
     private readonly processor: IngestProcessor,
+    private readonly db: DbService,
   ) {}
-
-  async onModuleInit() {
-    // Rebuild the repo registry from BullMQ jobs persisted in Redis.
-    // Jobs are kept because removeOnComplete/removeOnFail are false.
-    try {
-      const jobs = await this.ingestQueue.getJobs(
-        ['waiting', 'active', 'completed', 'failed', 'delayed'],
-        0,
-        1000,
-      );
-      // Keep only the most-recent job per repoId
-      const latest = new Map<string, (typeof jobs)[number]>();
-      for (const job of jobs) {
-        const { repoId, repoUrl } = job.data ?? {};
-        if (!repoId || !repoUrl) continue;
-        const existing = latest.get(repoId);
-        if (!existing || job.timestamp > existing.timestamp) {
-          latest.set(repoId, job);
-        }
-      }
-      for (const [repoId, job] of latest.entries()) {
-        this.ingestedRepos.set(repoId, {
-          repoUrl: job.data.repoUrl,
-          ingestedAt: new Date(job.timestamp),
-          status: 'unknown',
-          jobId: job.id as string,
-        });
-      }
-    } catch {}
-  }
 
   async queueIngest(dto: IngestRepoDto) {
     const repoId = this.repoUrlToId(dto.repoUrl);
@@ -55,19 +29,16 @@ export class IngestService implements OnModuleInit {
     const job = await this.ingestQueue.add(
       'clone-and-embed',
       { ...dto, repoId },
-      {
-        attempts: 1,
-        removeOnComplete: false,
-        removeOnFail: false,
-      },
+      { attempts: 1, removeOnComplete: false, removeOnFail: false },
     );
 
-    this.ingestedRepos.set(repoId, {
-      repoUrl: dto.repoUrl,
-      ingestedAt: new Date(),
-      status: 'queued',
-      jobId: job.id as string,
-    });
+    await this.db.db
+      .insert(repos)
+      .values({ repoId, repoUrl: dto.repoUrl, jobId: job.id as string, status: 'queued' })
+      .onConflictDoUpdate({
+        target: repos.repoId,
+        set: { repoUrl: dto.repoUrl, jobId: job.id as string, status: 'queued', ingestedAt: new Date() },
+      });
 
     return job;
   }
@@ -96,14 +67,12 @@ export class IngestService implements OnModuleInit {
     const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
     const poll = setInterval(async () => {
-      // Re-fetch the job on every tick so progress reflects the latest value from Redis
       const fresh = await this.ingestQueue.getJob(jobId);
       if (!fresh) return;
       const state = await fresh.getState();
       const progress = fresh.progress as number;
       const { logs } = await this.ingestQueue.getJobLogs(jobId);
 
-      // Send any new log lines
       for (let i = sentCount; i < logs.length; i++) {
         send({ log: logs[i], progress });
       }
@@ -121,15 +90,28 @@ export class IngestService implements OnModuleInit {
   }
 
   async listIngested() {
+    const repoRows = await this.db.db.select().from(repos);
     const results = [];
-    for (const [id, meta] of this.ingestedRepos.entries()) {
-      let status = meta.status;
-      try {
-        const job = await this.ingestQueue.getJob(meta.jobId);
-        if (job) status = await job.getState();
-      } catch {}
-      results.push({ repoId: id, ...meta, status });
+
+    for (const repo of repoRows) {
+      let status = repo.status;
+      if (repo.jobId) {
+        try {
+          const job = await this.ingestQueue.getJob(repo.jobId);
+          if (job) status = await job.getState();
+        } catch (err) {
+          this.logger.warn(`Could not get job state for ${repo.repoId}: ${err.message}`);
+        }
+      }
+      results.push({
+        repoId: repo.repoId,
+        repoUrl: repo.repoUrl,
+        ingestedAt: repo.ingestedAt.toISOString(),
+        jobId: repo.jobId,
+        status,
+      });
     }
+
     return results;
   }
 
@@ -139,48 +121,34 @@ export class IngestService implements OnModuleInit {
 
     const { repoUrl, repoId, includePatterns, branch } = job.data;
 
-    // Kill any active worker for this repo immediately
     this.processor.killWorker(repoId);
-
-    // Delete existing vectors and old jobs so re-ingestion starts fresh
     await this.vectorStoreService.deleteByRepoId(repoId);
     await this.removeJobsForRepo(repoId);
 
     const newJob = await this.ingestQueue.add(
       'clone-and-embed',
       { repoUrl, repoId, includePatterns, branch },
-      {
-        attempts: 1,
-        removeOnComplete: false,
-        removeOnFail: false,
-      },
+      { attempts: 1, removeOnComplete: false, removeOnFail: false },
     );
 
-    this.ingestedRepos.set(repoId, {
-      repoUrl,
-      ingestedAt: new Date(),
-      status: 'queued',
-      jobId: newJob.id as string,
-    });
+    await this.db.db
+      .update(repos)
+      .set({ jobId: newJob.id as string, status: 'queued', ingestedAt: new Date() })
+      .where(eq(repos.repoId, repoId));
 
     return newJob;
   }
 
   async deleteRepo(repoId: string) {
-    if (!this.ingestedRepos.has(repoId)) {
-      throw new NotFoundException(`Repository ${repoId} not found`);
-    }
-    this.ingestedRepos.delete(repoId);
+    const existing = await this.db.db.select().from(repos).where(eq(repos.repoId, repoId));
+    if (!existing.length) throw new NotFoundException(`Repository ${repoId} not found`);
 
-    // Kill any active worker for this repo immediately
     this.processor.killWorker(repoId);
-
-    // Remove all BullMQ jobs for this repo from Redis.
-    // Promise.allSettled so active (locked) jobs that can't be removed don't abort the rest.
     await this.removeJobsForRepo(repoId);
 
+    // Delete repo row (cascades to chat_messages) and vectors in parallel
     await Promise.all([
-      this.chatHistoryService.clearHistory(repoId),
+      this.db.db.delete(repos).where(eq(repos.repoId, repoId)),
       this.vectorStoreService.deleteByRepoId(repoId),
     ]);
   }
@@ -189,7 +157,8 @@ export class IngestService implements OnModuleInit {
     try {
       const jobs = await this.ingestQueue.getJobs(
         ['waiting', 'active', 'completed', 'failed', 'delayed'],
-        0, 1000,
+        0,
+        1000,
       );
       await Promise.allSettled(
         jobs.filter((j) => j.data?.repoId === repoId).map((j) => j.remove()),

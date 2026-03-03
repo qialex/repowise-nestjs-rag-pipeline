@@ -1,51 +1,47 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import Redis from 'ioredis';
+import { Injectable } from '@nestjs/common';
+import { eq } from 'drizzle-orm';
+import { DbService } from '../db/db.service';
+import { chatMessages } from '../db/schema';
 import { ChatMessage } from '@repowise/shared';
 
 export type { ChatMessage };
 
-const HISTORY_KEY = (repoId: string) => `chat:history:${repoId}`;
 const MAX_MESSAGES = 20;
 
 @Injectable()
-export class ChatHistoryService implements OnModuleDestroy {
-  private readonly redis: Redis;
-
-  constructor(private readonly config: ConfigService) {
-    this.redis = new Redis({
-      host: config.get('REDIS_HOST', '127.0.0.1'),
-      port: config.get<number>('REDIS_PORT', 6379),
-      password: config.get('REDIS_PASSWORD'),
-      tls: config.get('REDIS_TLS') === 'true' ? {} : undefined,
-      lazyConnect: true,
-      maxRetriesPerRequest: 0,
-      retryStrategy: () => null,
-    });
-  }
+export class ChatHistoryService {
+  constructor(private readonly db: DbService) {}
 
   async getHistory(repoId: string): Promise<ChatMessage[]> {
-    try {
-      const data = await this.redis.get(HISTORY_KEY(repoId));
-      return data ? JSON.parse(data) : [];
-    } catch {
-      return [];
-    }
+    const rows = await this.db.db
+      .select()
+      .from(chatMessages)
+      .where(eq(chatMessages.repoId, repoId))
+      .orderBy(chatMessages.createdAt);
+
+    return rows.map((row) => ({
+      role: row.role as 'user' | 'assistant',
+      content: row.content,
+      ...(row.logs ? { logs: row.logs as string[] } : {}),
+    }));
   }
 
   async saveHistory(repoId: string, messages: ChatMessage[]): Promise<void> {
-    try {
-      await this.redis.set(HISTORY_KEY(repoId), JSON.stringify(messages.slice(-MAX_MESSAGES)));
-    } catch {}
+    const trimmed = messages.slice(-MAX_MESSAGES);
+    await this.db.db.delete(chatMessages).where(eq(chatMessages.repoId, repoId));
+    if (trimmed.length > 0) {
+      await this.db.db.insert(chatMessages).values(
+        trimmed.map((msg) => ({
+          repoId,
+          role: msg.role,
+          content: msg.content,
+          logs: msg.logs ?? null,
+        })),
+      );
+    }
   }
 
   async clearHistory(repoId: string): Promise<void> {
-    try {
-      await this.redis.del(HISTORY_KEY(repoId));
-    } catch {}
-  }
-
-  onModuleDestroy() {
-    this.redis.disconnect();
+    await this.db.db.delete(chatMessages).where(eq(chatMessages.repoId, repoId));
   }
 }
