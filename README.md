@@ -41,7 +41,7 @@
 2. BullMQ queues a job in Upstash Redis
 3. `IngestProcessor` picks up the job and **forks a child process** (`ingest-worker`)
 4. The worker: clones the repo → chunks files → embeds with Google Gemini → stores in Upstash Vector
-5. Progress and logs stream back to the UI via SSE
+5. Logs are written to Neon Postgres and streamed to the UI via SSE (in-process EventEmitter, zero extra Redis reads)
 
 ### Chat pipeline
 
@@ -63,6 +63,7 @@
 | RAG framework | LangChain.js |
 | Database | Neon Postgres (repo metadata + chat history) |
 | Frontend | Next.js 14 (App Router) |
+| Analytics | Vercel Analytics |
 | Styling | Tailwind CSS + Radix UI |
 | Dev environment | VS Code Dev Containers |
 | Deployment | Railway (backend) + Vercel (frontend) |

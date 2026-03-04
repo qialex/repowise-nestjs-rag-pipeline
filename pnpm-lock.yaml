@@ -158,6 +158,9 @@ importers:
       '@repowise/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@vercel/analytics':
+        specifier: ^1.6.1
+        version: 1.6.1(next@14.2.35(@opentelemetry/api@1.9.0)(@playwright/test@1.58.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)(svelte@5.53.3)(vue@3.5.29(typescript@5.9.3))
       ai:
         specifier: ^3.0.0
         version: 3.4.33(openai@4.104.0(ws@8.19.0)(zod@4.3.6))(react@18.3.1)(sswr@2.2.0(svelte@5.53.3))(svelte@5.53.3)(vue@3.5.29(typescript@5.9.3))(zod@4.3.6)
@@ -2310,6 +2313,32 @@ packages:
 
   '@upstash/vector@1.2.2':
     resolution: {integrity: sha512-ptQ9xnxtKqmpNK52PCcHCszlPOLxIBfjsv7ty8RoF95pkjctS9rSjTQ3Pl9bx5VFbpDj+0dMXw88WLt6swDkgQ==}
+
+  '@vercel/analytics@1.6.1':
+    resolution: {integrity: sha512-oH9He/bEM+6oKlv3chWuOOcp8Y6fo6/PSro8hEkgCW3pu9/OiCXiUpRUogDh3Fs3LH2sosDrx8CxeOLBEE+afg==}
+    peerDependencies:
+      '@remix-run/react': ^2
+      '@sveltejs/kit': ^1 || ^2
+      next: '>= 13'
+      react: ^18 || ^19 || ^19.0.0-rc
+      svelte: '>= 4'
+      vue: ^3
+      vue-router: ^4
+    peerDependenciesMeta:
+      '@remix-run/react':
+        optional: true
+      '@sveltejs/kit':
+        optional: true
+      next:
+        optional: true
+      react:
+        optional: true
+      svelte:
+        optional: true
+      vue:
+        optional: true
+      vue-router:
+        optional: true
 
   '@vue/compiler-core@3.5.29':
     resolution: {integrity: sha512-cuzPhD8fwRHk8IGfmYaR4eEe4cAyJEL66Ove/WZL7yWNL134nqLddSLwNRIsFlnnW1kK+p8Ck3viFnC0chXCXw==}
@@ -6830,6 +6859,13 @@ snapshots:
     optional: true
 
   '@upstash/vector@1.2.2': {}
+
+  '@vercel/analytics@1.6.1(next@14.2.35(@opentelemetry/api@1.9.0)(@playwright/test@1.58.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)(svelte@5.53.3)(vue@3.5.29(typescript@5.9.3))':
+    optionalDependencies:
+      next: 14.2.35(@opentelemetry/api@1.9.0)(@playwright/test@1.58.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react: 18.3.1
+      svelte: 5.53.3
+      vue: 3.5.29(typescript@5.9.3)
 
   '@vue/compiler-core@3.5.29':
     dependencies:
