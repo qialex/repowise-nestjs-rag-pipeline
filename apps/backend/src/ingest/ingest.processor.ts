@@ -3,8 +3,12 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Job } from 'bullmq';
 import { fork, ChildProcess } from 'child_process';
+import { eq } from 'drizzle-orm';
 import * as path from 'path';
 import { INGEST_QUEUE } from './constants';
+import { IngestLogService } from './ingest-log.service';
+import { DbService } from '../db/db.service';
+import { repos } from '../db/schema';
 
 const REQUIRED_ENV_VARS = [
   { name: 'GOOGLE_API_KEY',        description: 'Required for embeddings' },
@@ -19,14 +23,23 @@ type WorkerMessage =
   | { type: 'error';    message: string };
 
 // Lock duration must exceed the worst-case job runtime (embedding + rate-limit retries).
-@Processor(INGEST_QUEUE, { lockDuration: 600_000 })
+// drainDelay: idle poll interval in seconds (default 5). Only affects empty-queue polling;
+//   jobs still start immediately because BullMQ signals the marker key on enqueue.
+//   30 s → ~16 commands/min idle vs ~96/min at the default of 5 s.
+// stalledInterval: ms between stalled-job sweeps (default 30 000). 5 min is fine given
+//   the 10-min lockDuration above.
+@Processor(INGEST_QUEUE, { lockDuration: 600_000, drainDelay: 300, stalledInterval: 300_000 })
 export class IngestProcessor extends WorkerHost {
   private readonly logger = new Logger(IngestProcessor.name);
 
   /** repoId → active child process */
   private readonly activeWorkers = new Map<string, ChildProcess>();
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly ingestLogService: IngestLogService,
+    private readonly db: DbService,
+  ) {
     super();
   }
 
@@ -41,8 +54,9 @@ export class IngestProcessor extends WorkerHost {
     });
     if (missing.length > 0) {
       for (const { name, description } of missing) {
-        await job.log(`Missing env var: ${name} — ${description}`);
+        await this.ingestLogService.addLog(job.id as string, repoId, `Missing env var: ${name} — ${description}`);
       }
+      this.ingestLogService.emitDone(job.id as string, 'failed');
       throw new Error(
         `Cannot start ingestion — missing environment variables: ${missing.map((m) => m.name).join(', ')}`,
       );
@@ -62,19 +76,24 @@ export class IngestProcessor extends WorkerHost {
         switch (msg.type) {
           case 'log':
             this.logger.log(`[${repoId}] ${msg.msg}`);
-            await job.log(msg.msg);
+            await this.ingestLogService.addLog(job.id as string, repoId, msg.msg);
             break;
           case 'progress':
             await job.updateProgress(msg.value);
+            this.ingestLogService.emitProgress(job.id as string, msg.value);
             break;
           case 'done':
             this.activeWorkers.delete(repoId);
+            await this.db.db.update(repos).set({ status: 'completed' }).where(eq(repos.repoId, repoId));
+            this.ingestLogService.emitDone(job.id as string, 'completed');
             resolve(msg.result);
             break;
           case 'error':
             this.activeWorkers.delete(repoId);
             this.logger.error(`[${repoId}] ${msg.message}`);
-            await job.log(`Error: ${msg.message}`);
+            await this.ingestLogService.addLog(job.id as string, repoId, `Error: ${msg.message}`);
+            await this.db.db.update(repos).set({ status: 'failed' }).where(eq(repos.repoId, repoId));
+            this.ingestLogService.emitDone(job.id as string, 'failed');
             reject(new Error(msg.message));
             break;
         }
@@ -83,9 +102,11 @@ export class IngestProcessor extends WorkerHost {
       child.on('exit', (code, signal) => {
         this.activeWorkers.delete(repoId);
         if (signal === 'SIGTERM' || signal === 'SIGKILL') {
+          this.ingestLogService.emitDone(job.id as string, 'failed');
           reject(new Error('Ingestion cancelled'));
         } else if (code !== null && code !== 0) {
-          // Worker exited with error before sending an 'error' message
+          this.db.db.update(repos).set({ status: 'failed' }).where(eq(repos.repoId, repoId)).catch(() => {});
+          this.ingestLogService.emitDone(job.id as string, 'failed');
           reject(new Error(`Worker process exited with code ${code}`));
         }
         // code 0 is handled via the 'done' message above

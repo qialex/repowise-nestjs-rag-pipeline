@@ -6,7 +6,7 @@ import type { Response } from 'express';
 import { IngestRepoDto } from './dto/ingest-repo.dto';
 import { VectorStoreService } from './vector-store.service';
 import { IngestProcessor } from './ingest.processor';
-import { ChatHistoryService } from '../generation/chat-history.service';
+import { IngestLogService } from './ingest-log.service';
 import { DbService } from '../db/db.service';
 import { repos } from '../db/schema';
 import { INGEST_QUEUE } from './constants';
@@ -17,9 +17,9 @@ export class IngestService {
 
   constructor(
     @InjectQueue(INGEST_QUEUE) private readonly ingestQueue: Queue,
-    private readonly chatHistoryService: ChatHistoryService,
     private readonly vectorStoreService: VectorStoreService,
     private readonly processor: IngestProcessor,
+    private readonly ingestLogService: IngestLogService,
     private readonly db: DbService,
   ) {}
 
@@ -49,7 +49,7 @@ export class IngestService {
 
     const state = await job.getState();
     const progress = job.progress;
-    const { logs } = await this.ingestQueue.getJobLogs(jobId);
+    const logs = await this.ingestLogService.getLogs(jobId);
 
     return { jobId, state, progress, data: job.data, logs };
   }
@@ -62,57 +62,58 @@ export class IngestService {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    let sentCount = 0;
-
     const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
-    const poll = setInterval(async () => {
-      const fresh = await this.ingestQueue.getJob(jobId);
-      if (!fresh) return;
-      const state = await fresh.getState();
-      const progress = fresh.progress as number;
-      const { logs } = await this.ingestQueue.getJobLogs(jobId);
+    const close = () => {
+      res.write('data: [DONE]\n\n');
+      res.end();
+    };
 
-      for (let i = sentCount; i < logs.length; i++) {
-        send({ log: logs[i], progress });
-      }
-      sentCount = logs.length;
+    // Send all existing logs immediately (catch-up for late joiners / page refreshes)
+    const existingLogs = await this.ingestLogService.getLogs(jobId);
+    for (const message of existingLogs) {
+      send({ log: message });
+    }
 
-      if (state === 'completed' || state === 'failed') {
-        send({ state, progress });
-        res.write('data: [DONE]\n\n');
-        res.end();
-        clearInterval(poll);
-      }
-    }, 500);
+    // If the job is already terminal, close immediately
+    const state = await job.getState();
+    if (state === 'completed' || state === 'failed') {
+      send({ state });
+      close();
+      return;
+    }
 
-    res.on('close', () => clearInterval(poll));
+    // Stream new logs, progress and state as they arrive — zero Redis reads
+    const unsubLog      = this.ingestLogService.onLog(jobId, (message) => send({ log: message }));
+    const unsubProgress = this.ingestLogService.onProgress(jobId, (value) => send({ progress: value }));
+    const unsubDone     = this.ingestLogService.onDone(jobId, (finalState) => {
+      send({ state: finalState });
+      cleanup();
+    });
+
+    const cleanup = () => {
+      unsubLog();
+      unsubProgress();
+      unsubDone();
+      close();
+    };
+
+    res.on('close', () => {
+      unsubLog();
+      unsubProgress();
+      unsubDone();
+    });
   }
 
   async listIngested() {
     const repoRows = await this.db.db.select().from(repos);
-    const results = [];
-
-    for (const repo of repoRows) {
-      let status = repo.status;
-      if (repo.jobId) {
-        try {
-          const job = await this.ingestQueue.getJob(repo.jobId);
-          if (job) status = await job.getState();
-        } catch (err) {
-          this.logger.warn(`Could not get job state for ${repo.repoId}: ${err.message}`);
-        }
-      }
-      results.push({
-        repoId: repo.repoId,
-        repoUrl: repo.repoUrl,
-        ingestedAt: repo.ingestedAt.toISOString(),
-        jobId: repo.jobId,
-        status,
-      });
-    }
-
-    return results;
+    return repoRows.map((repo) => ({
+      repoId: repo.repoId,
+      repoUrl: repo.repoUrl,
+      ingestedAt: repo.ingestedAt.toISOString(),
+      jobId: repo.jobId,
+      status: repo.status,
+    }));
   }
 
   async restartJob(jobId: string) {
@@ -124,6 +125,7 @@ export class IngestService {
     this.processor.killWorker(repoId);
     await this.vectorStoreService.deleteByRepoId(repoId);
     await this.removeJobsForRepo(repoId);
+    await this.ingestLogService.deleteLogsForRepo(repoId);
 
     const newJob = await this.ingestQueue.add(
       'clone-and-embed',
@@ -146,10 +148,10 @@ export class IngestService {
     this.processor.killWorker(repoId);
     await this.removeJobsForRepo(repoId);
 
-    // Delete repo row (cascades to chat_messages) and vectors in parallel
     await Promise.all([
       this.db.db.delete(repos).where(eq(repos.repoId, repoId)),
       this.vectorStoreService.deleteByRepoId(repoId),
+      this.ingestLogService.deleteLogsForRepo(repoId),
     ]);
   }
 

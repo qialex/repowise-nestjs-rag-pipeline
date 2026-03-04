@@ -63,6 +63,9 @@ function isRedisConfigured(config: ConfigService): boolean {
             // on blocking commands (BRPOPLPUSH / BLMOVE) used by the queue
             maxRetriesPerRequest: null,
             enableReadyCheck: false,
+            // Exponential backoff so rate-limit errors don't cause a runaway
+            // retry storm that burns through Upstash free-tier quotas
+            retryStrategy: (times: number) => Math.min(times * 1000, 30000),
           },
         };
       },

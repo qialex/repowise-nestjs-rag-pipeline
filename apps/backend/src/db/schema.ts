@@ -8,6 +8,14 @@ export const repos = pgTable('repos', {
   status: varchar('status', { length: 50 }).default('queued').notNull(),
 });
 
+export const ingestLogs = pgTable('ingest_logs', {
+  id: serial('id').primaryKey(),
+  jobId: varchar('job_id', { length: 255 }).notNull(),
+  repoId: varchar('repo_id', { length: 255 }).notNull(),
+  message: text('message').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 export const chatMessages = pgTable('chat_messages', {
   id: serial('id').primaryKey(),
   repoId: varchar('repo_id', { length: 255 })

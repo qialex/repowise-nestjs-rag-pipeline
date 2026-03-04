@@ -59,7 +59,7 @@ export default function RepoPage() {
 
       if (status.state === 'completed' || status.state === 'failed') {
         setLogs(status.logs ?? []);
-        setProgress(status.progress ?? 100);
+        setProgress(status.state === 'completed' ? 100 : (status.progress ?? 0));
         setIngestState(status.state);
         return;
       }
@@ -88,7 +88,7 @@ export default function RepoPage() {
             const { log, progress: p, state } = JSON.parse(raw);
             if (log) setLogs((prev) => [...prev, log]);
             if (p !== undefined) setProgress(p);
-            if (state === 'completed') setIngestState('completed');
+            if (state === 'completed') { setProgress(100); setIngestState('completed'); }
             if (state === 'failed') setIngestState('failed');
           } catch {}
         }
