@@ -204,8 +204,9 @@ repowise/
 │   ├── backend/src/
 │   │   ├── ingest/
 │   │   │   ├── ingest.controller.ts      # REST endpoints
-│   │   │   ├── ingest.service.ts         # Job management, kill on delete
+│   │   │   ├── ingest.service.ts         # Job management, SSE log streaming
 │   │   │   ├── ingest.processor.ts       # BullMQ worker — forks child per job
+│   │   │   ├── ingest-log.service.ts     # Logs → Postgres + EventEmitter SSE push
 │   │   │   ├── ingest-worker.ts          # Child process: clone→chunk→embed→store
 │   │   │   ├── clone.service.ts
 │   │   │   ├── chunking.service.ts
