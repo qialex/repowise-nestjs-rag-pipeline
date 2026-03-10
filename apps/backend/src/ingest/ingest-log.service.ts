@@ -60,4 +60,15 @@ export class IngestLogService {
     this.emitter.once(`done:${jobId}`, callback);
     return () => this.emitter.off(`done:${jobId}`, callback);
   }
+
+  /** Notify all repo-list SSE subscribers that the repo list has changed. */
+  emitReposChanged(): void {
+    this.emitter.emit('repos:changed');
+  }
+
+  /** Subscribe to repo list changes. Returns an unsubscribe function. */
+  onReposChanged(callback: () => void): () => void {
+    this.emitter.on('repos:changed', callback);
+    return () => this.emitter.off('repos:changed', callback);
+  }
 }

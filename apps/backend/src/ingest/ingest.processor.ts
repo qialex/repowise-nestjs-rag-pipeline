@@ -85,6 +85,7 @@ export class IngestProcessor extends WorkerHost {
           case 'done':
             this.activeWorkers.delete(repoId);
             await this.db.db.update(repos).set({ status: 'completed' }).where(eq(repos.repoId, repoId));
+            this.ingestLogService.emitReposChanged();
             this.ingestLogService.emitDone(job.id as string, 'completed');
             resolve(msg.result);
             break;
@@ -93,6 +94,7 @@ export class IngestProcessor extends WorkerHost {
             this.logger.error(`[${repoId}] ${msg.message}`);
             await this.ingestLogService.addLog(job.id as string, repoId, `Error: ${msg.message}`);
             await this.db.db.update(repos).set({ status: 'failed' }).where(eq(repos.repoId, repoId));
+            this.ingestLogService.emitReposChanged();
             this.ingestLogService.emitDone(job.id as string, 'failed');
             reject(new Error(msg.message));
             break;
@@ -106,6 +108,7 @@ export class IngestProcessor extends WorkerHost {
           reject(new Error('Ingestion cancelled'));
         } else if (code !== null && code !== 0) {
           this.db.db.update(repos).set({ status: 'failed' }).where(eq(repos.repoId, repoId)).catch(() => {});
+          this.ingestLogService.emitReposChanged();
           this.ingestLogService.emitDone(job.id as string, 'failed');
           reject(new Error(`Worker process exited with code ${code}`));
         }

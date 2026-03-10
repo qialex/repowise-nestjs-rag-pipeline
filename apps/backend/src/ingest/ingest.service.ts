@@ -40,6 +40,7 @@ export class IngestService {
         set: { repoUrl: dto.repoUrl, jobId: job.id as string, status: 'queued', ingestedAt: new Date() },
       });
 
+    this.ingestLogService.emitReposChanged();
     return job;
   }
 
@@ -105,6 +106,25 @@ export class IngestService {
     });
   }
 
+  async streamRepos(res: Response): Promise<void> {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    const send = async () => {
+      const data = await this.listIngested();
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    await send();
+
+    const unsub = this.ingestLogService.onReposChanged(async () => {
+      await send();
+    });
+
+    res.on('close', () => unsub());
+  }
+
   async listIngested() {
     const repoRows = await this.db.db.select().from(repos);
     return repoRows.map((repo) => ({
@@ -138,6 +158,7 @@ export class IngestService {
       .set({ jobId: newJob.id as string, status: 'queued', ingestedAt: new Date() })
       .where(eq(repos.repoId, repoId));
 
+    this.ingestLogService.emitReposChanged();
     return newJob;
   }
 
@@ -153,6 +174,8 @@ export class IngestService {
       this.vectorStoreService.deleteByRepoId(repoId),
       this.ingestLogService.deleteLogsForRepo(repoId),
     ]);
+
+    this.ingestLogService.emitReposChanged();
   }
 
   private async removeJobsForRepo(repoId: string): Promise<void> {

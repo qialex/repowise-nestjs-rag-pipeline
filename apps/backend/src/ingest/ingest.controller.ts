@@ -72,6 +72,12 @@ export class IngestController {
     return this.ingestService.listIngested();
   }
 
+  @Get('repos/stream')
+  @ApiOperation({ summary: 'Stream repo list updates via SSE' })
+  async streamRepos(@Res() res: Response) {
+    return this.ingestService.streamRepos(res);
+  }
+
   @Delete('repo/:repoId')
   @ApiOperation({ summary: 'Remove a repository from the vector store' })
   @HttpCode(HttpStatus.NO_CONTENT)

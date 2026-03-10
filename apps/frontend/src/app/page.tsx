@@ -34,17 +34,15 @@ export default function Home() {
 
   const headers = { 'Content-Type': 'application/json' };
 
-  const fetchRepos = () => {
-    fetch(`/api/ingest/repos`, { headers })
-      .then((r) => r.json())
-      .then((data) => { if (Array.isArray(data)) setRepos(data); })
-      .catch(() => {});
-  };
-
   useEffect(() => {
-    fetchRepos();
-    const interval = setInterval(fetchRepos, 3000);
-    return () => clearInterval(interval);
+    const es = new EventSource('/api/ingest/repos/stream');
+    es.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (Array.isArray(data)) setRepos(data);
+      } catch {}
+    };
+    return () => es.close();
   }, []);
 
   const deleteRepo = async (repo: Repo) => {
@@ -52,9 +50,7 @@ export default function Home() {
       await fetch(`/api/ingest/repo/${repo.repoId}`, { method: 'DELETE', headers });
       setDeletingRepoId(null);
       setRepos((prev) => prev.filter((r) => r.repoId !== repo.repoId));
-    } catch {
-      fetchRepos();
-    }
+    } catch {}
   };
 
   const restartRepo = async (repo: Repo) => {
@@ -66,7 +62,6 @@ export default function Home() {
       const data = await res.json();
       setRepos((prev) => prev.map((r) => r.repoId === repo.repoId ? { ...r, jobId: data.jobId, status: 'waiting' } : r));
     } catch {
-      fetchRepos();
     } finally {
       setRestarting(null);
     }
